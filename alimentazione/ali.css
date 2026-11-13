@@ -128,3 +128,5 @@
 .ali-chef { margin-top: 18px; background: var(--a-card); border: 1px solid var(--a-line); border-radius: var(--a-r); padding: 16px; }
 .ali-chef-t { font-weight: 900; font-size: 18px; }
 .ali-chef p { color: var(--a-muted); font-size: 14px; margin: 6px 0 12px; line-height: 1.4; }
+.ali-ricetta { margin-top: 16px; background: var(--a-card); border: 1px solid var(--a-line); border-radius: var(--a-r); padding: 14px 16px; }
+.ali-ricetta p { margin: 8px 0 0; line-height: 1.5; font-size: 15px; }

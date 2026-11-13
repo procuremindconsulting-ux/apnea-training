@@ -13,7 +13,7 @@
   'use strict';
 
   var BASE = '#/alimentazione';
-  var K = { spesa: 'mr9.ali.spesa', dispensa: 'mr9.ali.dispensa', diario: 'mr9.ali.diario', tipi: 'mr9.ali.tipoGiorno', menu: 'mr9.ali.menu', piano: 'mr9.ali.pianoCache' };
+  var K = { spesa: 'mr9.ali.spesa', dispensa: 'mr9.ali.dispensa', diario: 'mr9.ali.diario', tipi: 'mr9.ali.tipoGiorno', menu: 'mr9.ali.menu', piano: 'mr9.ali.pianoCache', menuVisto: 'mr9.ali.menuVisto' };
   var PERCORSO_PIANO = 'alimentazione/piano.json';
   var GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
   var MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
@@ -25,7 +25,46 @@
   function leggi(k, def) {
     try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; }
   }
-  function scrivi(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* memoria piena o privata */ } }
+  function scrivi(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* memoria piena o privata */ }
+    if (k === K.dispensa) salvaDispensaRemota();
+  }
+  /* ---------- repository dati (window.Mr9Dati, definito da app.js) ---------- */
+  var timerDisp = null;
+  function dati() { return window.Mr9Dati && window.Mr9Dati.scrivi ? window.Mr9Dati : null; }
+  function salvaDispensaRemota() {
+    if (!dati()) return;
+    clearTimeout(timerDisp);
+    timerDisp = setTimeout(function () {
+      var corpo = { formato: 'mr9-dispensa-v1', aggiornato: new Date().toISOString(), prodotti: leggi(K.dispensa, []) };
+      Promise.resolve(dati().scrivi('alimentazione/dispensa.json', JSON.stringify(corpo, null, 1), 'Dispensa aggiornata dall\'app')).catch(function () {});
+    }, 2500);
+  }
+  var menuChiesto = false;
+  function caricaMenuChef() {
+    var D = window.Mr9Dati;
+    if (menuChiesto || !D || !D.leggi) return;
+    menuChiesto = true;
+    Promise.resolve(D.leggi('alimentazione/menu.json')).then(function (testo) {
+      if (!testo) return;
+      var m = JSON.parse(testo);
+      if (!m || m.formato !== 'mr9-menu-v1' || !m.giorni) return;
+      if (leggi(K.menuVisto, '') === m.aggiornato) return;
+      var menu = leggi(K.menu, {}), oggi = oggiKey();
+      m.giorni.forEach(function (g) {
+        if (!g.data || g.data < oggi) return;
+        menu[g.data] = {};
+        (g.pasti || []).forEach(function (p) { if (p.id && p.piatto) menu[g.data][p.id] = { piatto: p.piatto, ricetta: p.ricetta || '' }; });
+      });
+      scrivi(K.menu, menu);
+      var s = leggi(K.spesa, []);
+      (m.spesa || []).forEach(function (a) { if (a && a.nome) aggiungiA(s, { nome: chiave(a.nome), q: a.q == null ? null : +a.q, u: a.u || (a.q == null ? null : 'pz') }, { origine: 'chef', preso: false }); });
+      scrivi(K.spesa, s);
+      scrivi(K.menuVisto, m.aggiornato || '');
+      ridisegna();
+      toast('Nuovo menu dello chef' + (m.spesa && m.spesa.length ? ', ' + m.spesa.length + ' prodotti in spesa' : ''), false);
+    }).catch(function () { menuChiesto = false; });
+  }
   function istantanea() { var s = {}; Object.keys(K).forEach(function (n) { s[K[n]] = leggi(K[n], null); }); return s; }
   function ripristina(s) { Object.keys(s).forEach(function (k) { if (s[k] === null) { try { localStorage.removeItem(k); } catch (e) {} } else scrivi(k, s[k]); }); }
 
@@ -361,7 +400,9 @@
       (disp ? '- In dispensa ho: ' + disp + '. Usa prima quello, sostituzioni solo equivalenti e segnalate.\n' : '') +
       '\nRispondi in italiano: titolo, tempo totale, passi numerati, un consiglio per variare.';
   }
-  function piattoDi(k, id) { var m = leggi(K.menu, {}); return (m[k] && m[k][id]) || ''; }
+  function voceMenu(k, id) { var m = leggi(K.menu, {}); return (m[k] && m[k][id]) || ''; }
+  function piattoDi(k, id) { var v = voceMenu(k, id); return typeof v === 'string' ? v : (v.piatto || ''); }
+  function ricettaDi(k, id) { var v = voceMenu(k, id); return typeof v === 'string' ? '' : (v.ricetta || ''); }
   function regoleChef() {
     var pi = piano();
     return '- Rispetta le grammature (a crudo); non aggiungere grassi oltre all\'olio indicato.\n' +
@@ -629,7 +670,8 @@
     });
     h += '</ul>';
     if (/verdura cotta/.test(p.ingredienti.map(function (i) { return i[0]; }).join())) h += '<p class="ali-pic">Verdura cotta a scelta: ' + esc(pi.verduraCotta.join(', ')) + '.</p>';
-    h += '<button class="ali-btn ali-btn-chef" data-act="chef" data-id="' + esc(id) + '">👨‍🍳 Ricetta</button>' +
+    if (ricettaDi(k, id)) h += '<div class="ali-ricetta"><div class="ali-chef-t">👨‍🍳 Ricetta dello chef</div><p>' + esc(ricettaDi(k, id)).replace(/\n/g, '<br>') + '</p></div>';
+    h += '<button class="ali-btn ali-btn-chef" data-act="chef" data-id="' + esc(id) + '">👨‍🍳 ' + (ricettaDi(k, id) ? 'Chiedi altro allo chef' : 'Ricetta') + '</button>' +
       '<button class="ali-link" data-act="chef-copia" data-id="' + esc(id) + '">Copia la richiesta per Claude</button>';
     h += '<div class="ali-det-reg">' + (r ? '<div class="ali-reg">' + esc(r.comeDaPiano ? '✓ Mangiato come da piano alle ' + r.ora : r.saltato ? 'Saltato' : '✎ ' + r.testo) + '</div>' : '') +
       '<div class="ali-due"><button class="ali-btn ali-btn-ok" data-act="come-piano" data-id="' + esc(id) + '">✓ Come da piano</button>' +
@@ -759,6 +801,7 @@
       el.addEventListener('click', clic);
       ridisegna();
       caricaPiano();
+      caricaMenuChef();
     },
     unmount: function () {
       chiudiVoce();

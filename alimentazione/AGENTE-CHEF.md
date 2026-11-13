@@ -13,6 +13,7 @@ SPESA
 ```
 
 2. **Importa**: «Ho la risposta: importa menu e spesa» legge gli appunti (o fa incollare). I piatti compaiono sotto ogni pasto, i prodotti mancanti vanno in lista con l'etichetta «chef». Annulla disponibile.
+4. **Chef nel cloud**: lo chef pianificato scrive `alimentazione/menu.json` (formato mr9-menu-v1) nel repository dati; l'app lo legge all'apertura, sostituisce il menu dei giorni futuri, mostra la ricetta nel pasto e aggiunge la spesa con etichetta «chef». L'app scrive `alimentazione/dispensa.json` (mr9-dispensa-v1) a ogni modifica della dispensa.
 3. **Ricetta** del singolo pasto: se il piatto è già deciso dal menu, lo chef prepara quel piatto con le grammature del piano.
 
 ## Regole date allo chef
