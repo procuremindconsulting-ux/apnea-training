@@ -4,11 +4,11 @@
  *  - pagine (navigazioni): prima la rete, se manca si usa la copia in cache
  *    → aggiornamenti subito visibili quando c'è connessione, app funzionante in palestra senza campo.
  *  - file statici dello stesso sito (js, css, immagini, font): dalla cache e aggiornati in background.
- *  - richieste verso altri domini o non GET (es. invio esito a Claude): mai toccate.
+ *  - richieste verso altri domini (api.github.com), la cartella dati/ e le richieste non GET: mai in cache.
  *
  * Per forzare l'aggiornamento di tutti i telefoni basta cambiare VERSION.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `mr9-${VERSION}`;
 
 const PRECACHE = [
@@ -50,7 +50,10 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // Altri domini (es. api.github.com dove l'app legge e scrive sedute ed esiti): sempre dalla rete.
   if (url.origin !== self.location.origin) return;
+  // Dati delle sedute serviti dallo stesso sito: sempre freschi, mai dalla cache.
+  if (url.pathname.includes('/dati/')) return;
   // I video vengono chiesti a pezzi (Range): lasciali al browser.
   if (req.headers.has('range')) return;
 
