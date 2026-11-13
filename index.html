@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mr. 9">
+  <title>Mr. 9 Training</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="alimentazione/ali.css">
+</head>
+<body>
+  <div id="app" class="app"></div>
+  <nav class="tabbar" id="tabbar">
+    <a href="#/" data-tab="home"><span class="ti"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span>Home</a>
+    <a href="#/fisico" data-tab="fisico"><span class="ti"><svg viewBox="0 0 24 24"><path d="M2 10h2V8h3v8H4v-2H2zM22 10h-2V8h-3v8h3v-2h2zM7 11h10v2H7z"/></svg></span>Fisico</a>
+    <a href="#/apnea" data-tab="apnea"><span class="ti"><svg viewBox="0 0 24 24"><path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11z"/></svg></span>Apnea</a>
+    <a href="#/mentale" data-tab="mentale"><span class="ti"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round"/></svg></span>Mentale</a>
+    <a href="#/alimentazione" data-tab="alimentazione"><span class="ti"><svg viewBox="0 0 24 24"><path d="M12 7c-2-3-7-2.5-7 2.5 0 5 4 10.5 7 10.5s7-5.5 7-10.5C19 4.5 14 4 12 7z"/><path d="M12 7c0-2 1-3.5 3-4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg></span>Cibo</a>
+  </nav>
+  <script src="alimentazione/ali-dati.js"></script>
+  <script src="alimentazione/ali.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,131 @@
+{
+  "formato": "mr9-scheda-v1",
+  "sezione": "fisico",
+  "note_coach": "Scheda di ESEMPIO per provare l'app: non è un piano reale.",
+  "sedute": [
+    {
+      "id": "esempio-forza-lun",
+      "titolo": "Forza – Lunedì completa",
+      "tipo": "palestra",
+      "data": "2026-11-16",
+      "durata_stimata_min": 65,
+      "note": "Mai al cedimento. Se compare dolore sopra 2/10 ti fermi.",
+      "esercizi": [
+        {
+          "id": "riscaldamento",
+          "nome": "Riscaldamento: mobilità toracica e scapole",
+          "tipo": "intervalli",
+          "fasi": [
+            { "nome": "Mobilità toracica", "durata_s": 180, "intensita": "facile" },
+            { "nome": "Scapole e rotazione esterna", "durata_s": 300, "intensita": "facile" }
+          ]
+        },
+        {
+          "id": "squat",
+          "nome": "Squat",
+          "tipo": "serie",
+          "serie": 3,
+          "ripetizioni": 6,
+          "carico": "95% del CR",
+          "rir": 3,
+          "recupero_s": 150
+        },
+        {
+          "id": "stacco-rumeno",
+          "nome": "Stacco rumeno",
+          "tipo": "serie",
+          "serie": 3,
+          "ripetizioni": 8,
+          "rir": 3,
+          "recupero_s": 120,
+          "note": "Schiena neutra, ginocchia morbide."
+        },
+        {
+          "id": "spinta-manubri-30",
+          "nome": "Spinta manubri presa neutra, panca 30°",
+          "tipo": "serie",
+          "serie": 3,
+          "ripetizioni": 8,
+          "rir": 4,
+          "recupero_s": 90,
+          "condizione": "Solo se non hai dolore sopra 2/10"
+        },
+        {
+          "id": "core",
+          "nome": "Core",
+          "tipo": "circuito",
+          "giri": 3,
+          "recupero_s": 60,
+          "voci": [
+            { "nome": "Plank", "lavoro_s": 40 },
+            { "nome": "Pallof press", "ripetizioni": "10 per lato" },
+            { "nome": "Dead bug", "ripetizioni": "8 per lato" }
+          ]
+        }
+      ],
+      "domande": [
+        { "id": "impegno", "testo": "Impegno percepito", "tipo": "scala", "min": 1, "max": 10, "etichette": ["Facilissima", "Massimale"] },
+        { "id": "dolore", "testo": "Dolore durante la seduta", "tipo": "scala", "min": 0, "max": 10, "etichette": ["Nessuno", "Fortissimo"] },
+        { "id": "segnali", "testo": "Segnali di fatica (stanchezza, nausea, impegno in salita)", "tipo": "scala", "min": 0, "max": 3 }
+      ]
+    },
+    {
+      "id": "esempio-corsa-dom",
+      "titolo": "Corsa lunga facile",
+      "tipo": "corsa",
+      "data": "2026-11-15",
+      "durata_stimata_min": 50,
+      "note": "Ritmo da conversazione, FC in zona 2. Se sale: alterna 4' di corsa e 1' di camminata.",
+      "esercizi": [
+        {
+          "id": "corsa",
+          "nome": "Corsa facile",
+          "tipo": "intervalli",
+          "fasi": [
+            { "nome": "Camminata veloce", "durata_s": 180, "intensita": "recupero" },
+            { "nome": "Corsa facile", "durata_s": 2640, "intensita": "facile" },
+            { "nome": "Defaticamento camminando", "durata_s": 180, "intensita": "recupero" }
+          ]
+        }
+      ],
+      "domande": [
+        { "id": "fc", "testo": "FC media / massima", "tipo": "testo" },
+        { "id": "impegno", "testo": "Impegno percepito", "tipo": "scala", "min": 1, "max": 10 },
+        { "id": "segnali", "testo": "Segnali di fatica", "tipo": "scala", "min": 0, "max": 3 }
+      ]
+    },
+    {
+      "id": "esempio-nuoto-mar",
+      "titolo": "Nuoto 1.500 m a ritmo costante",
+      "tipo": "nuoto",
+      "data": "2026-11-17",
+      "durata_stimata_min": 45,
+      "note": "Niente pagaie. Se compare dolore durante la seduta ti fermi.",
+      "esercizi": [
+        {
+          "id": "nuoto",
+          "nome": "200 + 2×400 + 300 + 200",
+          "tipo": "intervalli",
+          "fasi": [
+            { "nome": "Riscaldamento", "metri": 200, "intensita": "facile" },
+            { "nome": "Recupero", "durata_s": 40, "intensita": "recupero" },
+            {
+              "ripeti": 2,
+              "fasi": [
+                { "nome": "Ritmo costante", "metri": 400, "intensita": "medio" },
+                { "nome": "Recupero", "durata_s": 40, "intensita": "recupero" }
+              ]
+            },
+            { "nome": "Ritmo costante", "metri": 300, "intensita": "medio" },
+            { "nome": "Recupero", "durata_s": 40, "intensita": "recupero" },
+            { "nome": "Sciolto", "metri": 200, "intensita": "facile" }
+          ]
+        }
+      ],
+      "domande": [
+        { "id": "impegno", "testo": "Impegno percepito", "tipo": "scala", "min": 1, "max": 10 },
+        { "id": "dolore", "testo": "Dolore durante il nuoto", "tipo": "scala", "min": 0, "max": 10 }
+      ]
+    }
+  ]
+}
