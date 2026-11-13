@@ -14,6 +14,8 @@ const CACHE = `mr9-${VERSION}`;
 const PRECACHE = [
   './',
   './index.html',
+  './app.css',
+  './app.js',
   './manifest.webmanifest',
   './pwa/pwa.js',
   './pwa/pwa.css',
@@ -22,6 +24,7 @@ const PRECACHE = [
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
   './icons/favicon-32.png',
+  './icons/icon.svg',
 ];
 
 self.addEventListener('install', (event) => {
