@@ -9,7 +9,7 @@
  *
  * Per forzare l'aggiornamento di tutti i telefoni basta cambiare VERSION.
  */
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE = `mr9-${VERSION}`;
 
 const PRECACHE = [
@@ -64,25 +64,29 @@ self.addEventListener('fetch', (event) => {
   // Pagine e codice dell'app (html, js, css, manifest): prima la rete, così ogni rilascio arriva subito;
   // senza rete si usa la copia in cache. Immagini, icone e video: dalla cache.
   if (req.mode === 'navigate' || /\.(?:html|js|mjs|css|webmanifest|json)$/.test(url.pathname)) {
-    event.respondWith(networkFirst(req));
+    event.respondWith(networkFirst(req, event));
     return;
   }
   event.respondWith(staleWhileRevalidate(req, event));
 });
 
-async function networkFirst(req) {
+async function networkFirst(req, event) {
   const cache = await caches.open(CACHE);
-  try {
-    const res = await fetch(req);
-    if (res.ok) cache.put(req, res.clone());
+  // La rete aggiorna sempre la cache; se non risponde entro 3 s (campo scarso) si usa la copia salvata.
+  const rete = fetch(req).then((res) => {
+    if (res.ok && res.type === 'basic') cache.put(req, res.clone());
     return res;
+  });
+  if (event) event.waitUntil(rete.catch(() => {}));
+  const salvata = () => cache.match(req, { ignoreSearch: req.mode === 'navigate' })
+    .then((r) => r || (req.mode === 'navigate' ? cache.match('./index.html').then((x) => x || cache.match('./')) : undefined));
+  const timeout = new Promise((ok) => setTimeout(ok, 3000)).then(salvata);
+  try {
+    const r = await Promise.race([rete, timeout]);
+    if (r) return r;
+    return await rete; // nessuna copia salvata: aspetta la rete
   } catch {
-    return (
-      (await cache.match(req, { ignoreSearch: true })) ||
-      (await cache.match('./index.html')) ||
-      (await cache.match('./')) ||
-      new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
-    );
+    return (await salvata()) || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
 }
 
