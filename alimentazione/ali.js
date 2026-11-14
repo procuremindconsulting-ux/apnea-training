@@ -28,6 +28,7 @@
   function scrivi(k, v) {
     try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* memoria piena o privata */ }
     if (k === K.dispensa) salvaDispensaRemota();
+    if (k === K.diario) salvaDiarioRemoto();
   }
   /* ---------- repository dati (window.Mr9Dati, definito da app.js) ---------- */
   var timerDisp = null;
@@ -38,6 +39,18 @@
     timerDisp = setTimeout(function () {
       var corpo = { formato: 'mr9-dispensa-v1', aggiornato: new Date().toISOString(), prodotti: leggi(K.dispensa, []) };
       Promise.resolve(dati().scrivi('alimentazione/dispensa.json', JSON.stringify(corpo, null, 1), 'Dispensa aggiornata dall\'app')).catch(function () {});
+    }, 2500);
+  }
+  // Diario dei pasti nel repository dati (alimentazione/diario.json): lo legge il nutrizionista.
+  var timerDia = null;
+  function salvaDiarioRemoto() {
+    if (!dati()) return;
+    clearTimeout(timerDia);
+    timerDia = setTimeout(function () {
+      var dia = leggi(K.diario, {}), limite = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), giorni = {};
+      Object.keys(dia).sort().forEach(function (k) { if (k >= limite && dia[k] && dia[k].length) giorni[k] = dia[k]; });
+      var corpo = { formato: 'mr9-diario-pasti-v1', aggiornato: new Date().toISOString(), giorni: giorni };
+      Promise.resolve(dati().scrivi('alimentazione/diario.json', JSON.stringify(corpo, null, 1), 'Diario pasti aggiornato dall\'app')).catch(function () {});
     }, 2500);
   }
   var menuChiesto = false;

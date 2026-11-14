@@ -930,8 +930,15 @@ function sincronizza(forza) {
     try {
       for (const h of S.storico) { if (!h.inviato) await inviaEsito(h); }
       await inviaMessaggi();
-      const fatti = new Set(S.storico.map((h) => h.esito.seduta_id));
-      (await elencoRemoto(DATI.esiti)).forEach((n) => { const k = n.indexOf('_'); if (k > 0) fatti.add(n.slice(k + 1).replace(/\.json$/, '')); });
+      // Il database è la fonte: una seduta è fatta se il suo esito è nel repository dati,
+      // oppure se è sul telefono e non è ancora stata inviata.
+      const remoti = new Set(await elencoRemoto(DATI.esiti));
+      const fatti = new Set(S.storico.filter((h) => !h.inviato).map((h) => h.esito.seduta_id));
+      remoti.forEach((n) => { const k = n.indexOf('_'); if (k > 0) fatti.add(n.slice(k + 1).replace(/\.json$/, '')); });
+      // Esiti inviati e poi cancellati dal database (es. prove azzerate): spariscono anche dal telefono.
+      const primaStorico = S.storico.length;
+      S.storico = S.storico.filter((h) => !(h.inviato && h.inviatoVia === 'github') || remoti.has(nomeEsito(h.esito)));
+      if (S.storico.length !== primaStorico) toast('Storico allineato al database');
       const testo = await leggiRemoto(DATI.coda);
       if (testo) {
         const { sedute, note } = validaScheda(JSON.parse(testo));
