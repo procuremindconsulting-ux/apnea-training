@@ -1004,7 +1004,7 @@ function vRegista(seduta) {
   return `
   <div class="eyebrow">Un solo interlocutore</div>
   <h1>Messaggio al regista</h1>
-  <p class="muted">Racconta come vuoi: lui capisce di cosa si tratta e lo passa al coach, allo chef o alla spesa. Lo legge alle ${esc(prossimoGiro())} (giri alle 8:07, 12:07, 16:07 e 21:23). Per parlarci subito usa il progetto Claude del regista.</p>
+  <p class="muted">Racconta come vuoi: lui capisce di cosa si tratta e lo passa al coach, al nutrizionista, allo chef o alla spesa. Per scrivere a uno di loro inizia con il nome (es. “Per lo chef: …”). Lo legge alle ${esc(prossimoGiro())} (giri alle 8:07, 12:07, 16:07 e 21:23). Per parlarci subito usa il progetto Claude del regista.</p>
   ${s ? `<div class="note">Riguarda la seduta <b>${esc(s.titolo)}</b> del ${esc(dataIt(s.inizio))}.</div>` : ''}
   ${collegato() ? '' : '<div class="note">L’app non è collegata al database: il messaggio resta sul telefono finché non colleghi il coach (Fisico → Collega).</div>'}
   <div class="card">
