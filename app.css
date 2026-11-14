@@ -88,6 +88,7 @@ h3 { font-size: 17px; margin: 0; font-weight: 800; }
 .tile.apnea { background: linear-gradient(135deg, var(--apnea2), var(--apnea)); }
 .tile.mentale { background: linear-gradient(135deg, var(--mentale), var(--mentale2)); }
 .tile.cibo { background: linear-gradient(135deg, var(--cibo), var(--cibo2)); }
+.tile.regista { background: linear-gradient(135deg, var(--fisico), var(--mentale)); }
 .tile.soon { filter: saturate(.7); }
 .tile::after { content: ""; position: absolute; right: -30px; bottom: -30px; width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,.15); }
 

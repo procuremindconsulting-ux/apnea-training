@@ -294,6 +294,7 @@ function render() {
     case 'carica': html = vCarica(); break;
     case 'collega': html = vCollega(); break;
     case 'storico': html = vStorico(); break;
+    case 'regista': html = vRegista(parti[1] ? decodeURIComponent(parti[1]) : ''); break;
     case 'apnea': html = vPresto('apnea', 'Apnea', 'Statica, dinamica, tabelle CO₂ e O₂ e diario delle sessioni in vasca.'); break;
     case 'mentale': html = vPresto('mentale', 'Mentale', 'Diario dell’allenamento mentale: respirazione, visualizzazione, routine pre-gara.'); break;
     case 'alimentazione': html = window.Mr9Alimentazione ? '<div id="ali-root"></div>' : vPresto('cibo', 'Alimentazione', 'Diario dei pasti, idratazione e note sul peso.'); break;
@@ -304,7 +305,7 @@ function render() {
   app.innerHTML = html;
   if (h !== ultimaPagina) { window.scrollTo(0, 0); ultimaPagina = h; }
   document.body.classList.toggle('focus', focus);
-  const tab = pag === '' ? 'home' : (['seduta', 'es', 'fine', 'esito', 'carica', 'storico', 'collega'].includes(pag) ? 'fisico' : pag);
+  const tab = pag === '' ? 'home' : (['seduta', 'es', 'fine', 'esito', 'carica', 'storico', 'collega'].includes(pag) ? 'fisico' : pag === 'regista' ? 'home' : pag);
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
   collega(pag, parti);
   paginaModulo = null;
@@ -332,6 +333,7 @@ function vHome() {
     <a class="tile apnea soon" href="#/apnea"><span class="tbadge">Presto</span><div><div class="tname">Apnea</div><div class="tsub">Statica e dinamica</div></div></a>
     <a class="tile mentale soon" href="#/mentale"><span class="tbadge">Presto</span><div><div class="tname">Mentale</div><div class="tsub">Diario</div></div></a>
     <a class="tile cibo big ${window.Mr9Alimentazione ? '' : 'soon'}" href="#/alimentazione" style="min-height:120px"><span class="tbadge">${window.Mr9Alimentazione ? 'Oggi' : 'Presto'}</span><div><div class="tname">Alimentazione</div><div class="tsub">Diario</div></div></a>
+    <a class="tile regista big" href="#/regista" style="min-height:96px"><span class="tbadge">${esc(statoMessaggi())}</span><div><div class="tname">Messaggio al regista</div><div class="tsub">Allenamento, cibo, dispensa, spesa: detta e lui smista</div></div></a>
   </div>`;
 }
 
@@ -670,6 +672,7 @@ function vEsito(i) {
       ? '<p style="margin:0">Il coach lo legge al prossimo controllo e prepara la seduta successiva, che comparirà da sola nella pagina Fisico.</p>'
       : `<p style="margin:0">Non sono ancora riuscito a inviarlo${S.sync && S.sync.errore ? ' (' + esc(S.sync.errore) + ')' : ''}. Riprovo da solo appena c\u2019è connessione.</p><button class="btn" id="b-reinvia" style="margin-top:12px">Riprova adesso</button>`}
   </div>
+  <a class="btn" href="#/regista/${encodeURIComponent(e.esito.seduta_id)}" style="margin-top:14px">Racconta di più al regista</a>
   <details style="margin-top:14px"><summary>Vedi l'esito</summary><textarea class="code" readonly id="t-esito">${esc(testo)}</textarea></details>
   <a class="btn primary" href="#/fisico" style="margin-top:14px">Fatto</a>`;
   }
@@ -823,6 +826,8 @@ function collega(pag, parti) {
     on('b-g-scollega', () => { S.github = null; S.sync = null; salva(); toast('Scollegato'); location.hash = '#/fisico'; });
   }
 
+  if (pag === 'regista') collegaRegista(parti[1] ? decodeURIComponent(parti[1]) : '');
+
   if (pag === 'esito') {
     const i = parseInt(parti[1], 10); const h = S.storico[i]; if (!h) return;
     const testo = testoPerCoach(h.esito);
@@ -924,6 +929,7 @@ function sincronizza(forza) {
   syncInCorso = (async () => {
     try {
       for (const h of S.storico) { if (!h.inviato) await inviaEsito(h); }
+      await inviaMessaggi();
       const fatti = new Set(S.storico.map((h) => h.esito.seduta_id));
       (await elencoRemoto(DATI.esiti)).forEach((n) => { const k = n.indexOf('_'); if (k > 0) fatti.add(n.slice(k + 1).replace(/\.json$/, '')); });
       const testo = await leggiRemoto(DATI.coda);
@@ -946,10 +952,103 @@ function sincronizza(forza) {
       ultimoSync = Date.now(); syncInCorso = null; salva();
       const pag = (location.hash || '#/').slice(2).split('/')[0];
       if (['', 'fisico', 'esito', 'storico', 'collega'].includes(pag)) render();
+      else if (pag === 'regista') aggiornaListaMessaggi();
     }
   })();
   return syncInCorso;
 }
+/* ---------- messaggi al regista ---------- */
+// Il regista è l'agente unico che smista le richieste a coach, chef e spesa.
+// L'app salva ogni messaggio in regia/messaggi/<AAAA-MM-GG-HHMMSS>.json (formato mr9-messaggio-v1);
+// il controllo novità (8:07, 12:07, 16:07) e il coach della sera (21:23) li leggono e li smistano.
+const FORMATO_MESSAGGIO = 'mr9-messaggio-v1';
+const CARTELLA_MESSAGGI = 'regia/messaggi';
+const GIRI_REGISTA = [[8, 7], [12, 7], [16, 7], [21, 23]]; // ora di Roma
+function prossimoGiro() {
+  // ora e minuti correnti a Roma, anche se il telefono è in un altro fuso
+  const p = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const h = +p.find((x) => x.type === 'hour').value, m = +p.find((x) => x.type === 'minute').value;
+  const g = GIRI_REGISTA.find(([gh, gm]) => gh * 60 + gm > h * 60 + m) || GIRI_REGISTA[0];
+  return `${g[0]}:${String(g[1]).padStart(2, '0')}`;
+}
+function nomeMessaggio(m) {
+  const d = new Date(m.creato); const z = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.json`;
+}
+async function inviaMessaggi() {
+  if (!collegato()) return;
+  for (const m of (S.messaggi || [])) {
+    if (m.inviato) continue;
+    const corpo = { formato: FORMATO_MESSAGGIO, creato: m.creato, testo: m.testo };
+    if (m.seduta) corpo.seduta = m.seduta;
+    await scriviRemoto(`${CARTELLA_MESSAGGI}/${nomeMessaggio(m)}`, JSON.stringify(corpo, null, 2) + '\n', 'Messaggio per il regista');
+    m.inviato = true; salva();
+  }
+}
+function statoMessaggi() {
+  const da = (S.messaggi || []).filter((m) => !m.inviato).length;
+  if (da) return `${da} da inviare`;
+  return collegato() ? `Prossima lettura ${prossimoGiro()}` : 'Collega il coach';
+}
+function righeMessaggi() {
+  const ult = (S.messaggi || []).slice(-5).reverse();
+  if (!ult.length) return '';
+  return `<div class="eyebrow" style="margin-top:22px">Ultimi messaggi</div>` + ult.map((m) => `
+    <div class="card" style="margin-bottom:8px"><div class="small muted">${esc(new Date(m.creato).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${m.inviato ? 'inviato ✓' : 'in attesa di connessione'}</div>
+    <div style="margin-top:4px;white-space:pre-wrap">${esc(m.testo)}</div></div>`).join('');
+}
+function aggiornaListaMessaggi() { const el = $('#msg-lista'); if (el) el.innerHTML = righeMessaggi(); }
+const Riconoscimento = window.SpeechRecognition || window.webkitSpeechRecognition;
+function vRegista(seduta) {
+  const s = seduta ? (S.storico.slice().reverse().find((h) => h.esito.seduta_id === seduta) || {}).esito : null;
+  return `
+  <div class="eyebrow">Un solo interlocutore</div>
+  <h1>Messaggio al regista</h1>
+  <p class="muted">Racconta come vuoi: lui capisce di cosa si tratta e lo passa al coach, allo chef o alla spesa. Lo legge alle ${esc(prossimoGiro())} (giri alle 8:07, 12:07, 16:07 e 21:23). Per parlarci subito usa il progetto Claude del regista.</p>
+  ${s ? `<div class="note">Riguarda la seduta <b>${esc(s.titolo)}</b> del ${esc(dataIt(s.inizio))}.</div>` : ''}
+  ${collegato() ? '' : '<div class="note">L’app non è collegata al database: il messaggio resta sul telefono finché non colleghi il coach (Fisico → Collega).</div>'}
+  <div class="card">
+    <textarea id="msg-testo" style="min-height:160px" placeholder="Es. “Inventario dispensa: 2 kg di riso, 6 uova, 500 g di petto di pollo…” oppure “Oggi la spalla mi tirava davanti quando alzavo il braccio”. Puoi dettare con il microfono della tastiera."></textarea>
+    ${Riconoscimento ? '<button class="btn" id="b-msg-mic" type="button" style="margin-top:10px">🎙 Detta</button>' : ''}
+  </div>
+  <button class="btn primary" id="b-msg-invia">Invia al regista</button>
+  <div id="msg-lista">${righeMessaggi()}</div>`;
+}
+let dettato = null;
+function collegaRegista(seduta) {
+  const ta = $('#msg-testo'); if (!ta) return;
+  const mic = $('#b-msg-mic');
+  if (mic) mic.addEventListener('click', () => {
+    if (dettato) { dettato.stop(); return; }
+    try {
+      const r = new Riconoscimento(); r.lang = 'it-IT'; r.continuous = true; r.interimResults = false;
+      const base = ta.value;
+      let parti = [];
+      r.onresult = (ev) => {
+        parti = Array.from(ev.results).filter((x) => x.isFinal).map((x) => x[0].transcript.trim());
+        ta.value = (base ? base.trim() + ' ' : '') + parti.join(' ');
+      };
+      r.onend = () => { dettato = null; if (mic.isConnected) mic.textContent = '🎙 Detta'; };
+      r.onerror = (ev) => { if (ev.error === 'not-allowed') toast('Permetti il microfono, oppure usa quello della tastiera'); };
+      r.start(); dettato = r; mic.textContent = '■ Ferma dettatura';
+    } catch (e) { toast('Dettatura non disponibile: usa il microfono della tastiera'); }
+  });
+  $('#b-msg-invia').addEventListener('click', async (ev) => {
+    if (dettato) dettato.stop();
+    const testo = ta.value.trim();
+    if (!testo) { toast('Scrivi o detta il messaggio'); ta.focus(); return; }
+    const b = ev.currentTarget; b.disabled = true;
+    S.messaggi = S.messaggi || [];
+    const m = { creato: new Date().toISOString(), testo, inviato: false };
+    if (seduta) m.seduta = seduta;
+    S.messaggi.push(m); if (S.messaggi.length > 50) S.messaggi = S.messaggi.slice(-50);
+    salva(); ta.value = '';
+    try { await inviaMessaggi(); toast(m.inviato ? `Inviato: lo legge alle ${prossimoGiro()}` : 'Salvato: lo invio quando colleghi il coach'); }
+    catch (e) { toast('Nessuna connessione: lo invio appena possibile'); }
+    b.disabled = false; aggiornaListaMessaggi();
+  });
+}
+
 // Accesso al repository dati per le altre sezioni (es. Alimentazione): stesso token, stesso repo privato.
 window.Mr9Dati = {
   collegato,
