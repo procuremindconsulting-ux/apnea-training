@@ -9,7 +9,7 @@
  *
  * Per forzare l'aggiornamento di tutti i telefoni basta cambiare VERSION.
  */
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `mr9-${VERSION}`;
 
 const PRECACHE = [

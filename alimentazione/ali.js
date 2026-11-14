@@ -27,7 +27,7 @@
   }
   function scrivi(k, v) {
     try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* memoria piena o privata */ }
-    if (k === K.dispensa) salvaDispensaRemota();
+    if (k === K.dispensa && !importoDispensa) { try { localStorage.setItem(K_DISP_AGG, new Date().toISOString()); } catch (e) {} salvaDispensaRemota(); }
     if (k === K.diario) salvaDiarioRemoto();
   }
   /* ---------- repository dati (window.Mr9Dati, definito da app.js) ---------- */
@@ -52,6 +52,26 @@
       var corpo = { formato: 'mr9-diario-pasti-v1', aggiornato: new Date().toISOString(), giorni: giorni };
       Promise.resolve(dati().scrivi('alimentazione/diario.json', JSON.stringify(corpo, null, 1), 'Diario pasti aggiornato dall\'app')).catch(function () {});
     }, 2500);
+  }
+  // Dispensa dal repository dati: se è più recente di quella del telefono (es. l'ha sistemata il regista), la sostituisce.
+  var K_DISP_AGG = 'mr9.ali.dispensaAgg', importoDispensa = false, dispChiesta = false;
+  function caricaDispensaRemota() {
+    var D = window.Mr9Dati;
+    if (dispChiesta || !D || !D.leggi) return;
+    dispChiesta = true;
+    Promise.resolve(D.leggi('alimentazione/dispensa.json')).then(function (testo) {
+      if (!testo) return;
+      var r = JSON.parse(testo);
+      if (!r || r.formato !== 'mr9-dispensa-v1' || !r.aggiornato || !Array.isArray(r.prodotti)) return;
+      var loc = null; try { loc = localStorage.getItem(K_DISP_AGG); } catch (e) {}
+      if (loc && new Date(loc) >= new Date(r.aggiornato)) return;
+      importoDispensa = true;
+      scrivi(K.dispensa, r.prodotti.filter(function (x) { return x && x.nome; }));
+      importoDispensa = false;
+      try { localStorage.setItem(K_DISP_AGG, new Date(r.aggiornato).toISOString()); } catch (e) {}
+      ridisegna();
+      toast('Dispensa aggiornata dal database (' + r.prodotti.length + ' prodotti)', false);
+    }).catch(function () { dispChiesta = false; });
   }
   var menuChiesto = false;
   function caricaMenuChef() {
@@ -190,7 +210,11 @@
     return { nome: resto, q: q, u: u };
   }
   function leggiArticoli(t) {
-    return t.split(/\s*,\s*|\s+e\s+(?!mezzo)|\s+ed\s+|\s+poi\s+|\s+più\s+/).map(leggiArticolo).filter(Boolean);
+    // La dettatura non mette le virgole: "18 uova 3 porzioni di pollo 500 grammi di friggitelli".
+    // Si separa prima di ogni quantità, salvo quando completa la voce precedente ("da 200 grammi", "circa 300").
+    t = t.replace(/(\S)\s+(?=(\d+([.,]\d+)?|un paio|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|dodici|quindici|venti|trenta|cinquanta|cento|duecento|trecento|quattrocento|cinquecento|mezzo chilo|un chilo|un litro)(\s|$))/g, '$1 §')
+      .replace(/(^|\s)(da|di|circa|per|x|tra|fino a|quasi|almeno|e|ed) §/g, '$1$2 ');
+    return t.split(/\s*§\s*|\s*,\s*|\s+e\s+(?!mezzo)|\s+ed\s+|\s+poi\s+|\s+più\s+/).map(leggiArticolo).filter(Boolean);
   }
 
   var RE_PASTI = [
@@ -547,6 +571,7 @@
       '<div class="ali-foglio-tit">' + esc(titolo) + '</div>' +
       '<div class="ali-onda" id="ali-onda"><span></span><span></span><span></span><span></span><span></span></div>' +
       '<div class="ali-trascritto" id="ali-trascritto" aria-live="polite"></div>' +
+      '<button class="ali-btn ali-btn-pri" id="ali-stop" type="button" hidden>Ho finito</button>' +
       '<form class="ali-dettato" id="ali-dettato" hidden>' +
       '<textarea id="ali-testo" rows="2" placeholder="Tocca il microfono della tastiera e parla" enterkeyhint="send"></textarea>' +
       '<button class="ali-btn ali-btn-pri" type="submit">Fatto</button>' +
@@ -566,32 +591,40 @@
     var C = SR();
     var mostraDettato = function () {
       foglio.querySelector('#ali-onda').hidden = true;
+      foglio.querySelector('#ali-stop').hidden = true;
       form.hidden = false;
       ta.focus();
     };
     if (!C) { mostraDettato(); return; }
     try {
       var r = new C();
-      r.lang = 'it-IT'; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
-      var finale = '', partito = false;
-      r.onstart = function () { partito = true; foglio.classList.add('ali-ascolto'); };
+      // Ascolto continuo: le pause non chiudono più il microfono. Si chiude con «Ho finito»
+      // (o dopo 3 minuti). Se il telefono interrompe da solo l'ascolto, riparte.
+      r.lang = 'it-IT'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
+      var finale = '', partito = false, finito = false, errore = false, inizio = Date.now();
+      var stop = foglio.querySelector('#ali-stop');
+      var termina = function () { finito = true; try { r.stop(); } catch (e) {} };
+      stop.addEventListener('click', termina);
+      r.onstart = function () { partito = true; foglio.classList.add('ali-ascolto'); stop.hidden = false; };
       r.onresult = function (ev) {
         var tmp = '';
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
-          if (ev.results[i].isFinal) finale += ev.results[i][0].transcript; else tmp += ev.results[i][0].transcript;
+          if (ev.results[i].isFinal) finale += ' ' + ev.results[i][0].transcript; else tmp += ' ' + ev.results[i][0].transcript;
         }
-        var el = foglio.querySelector('#ali-trascritto'); if (el) el.textContent = finale + tmp;
+        var el = foglio.querySelector('#ali-trascritto'); if (el) el.textContent = (finale + tmp).trim();
       };
       r.onerror = function (ev) {
-        stato.ricog = null;
         if (ev.error === 'no-speech' || ev.error === 'aborted') return;
-        mostraDettato();
+        errore = true; stato.ricog = null;
+        if (!finale.trim()) mostraDettato();
       };
       r.onend = function () {
+        if (stato.foglio !== foglio) { stato.ricog = null; return; }
+        if (!finito && !errore && Date.now() - inizio < 180000) { try { r.start(); return; } catch (e) {} }
         foglio.classList.remove('ali-ascolto');
         stato.ricog = null;
         if (finale.trim()) concludi(finale);
-        else if (partito && stato.foglio === foglio) mostraDettato();
+        else if (partito) mostraDettato();
       };
       stato.ricog = r;
       r.start();
@@ -715,9 +748,17 @@
     var d = leggi(K.dispensa, []);
     var h = '<div class="ali-sez-t"><h2>Dispensa</h2></div>';
     if (!d.length) h += '<p class="ali-vuoto">Vuota. Quando torni dalla spesa di\' «ho comprato tutto», oppure «in dispensa ho riso, pasta e 6 uova».</p>';
-    else h += '<ul class="ali-lista ali-disp">' + d.map(function (x) {
-      return '<li><span class="ali-l-n">' + esc(x.nome) + '</span><span class="ali-l-q">' + esc(fmtQ(x.q, x.u, x.nome)) + '</span></li>';
-    }).join('') + '</ul>';
+    else {
+      var riga = function (x) {
+        return '<li><span class="ali-l-n">' + esc(x.nome) + (x.nota ? '<small style="display:block;opacity:.65;font-weight:500">' + esc(x.nota) + '</small>' : '') + '</span><span class="ali-l-q">' + esc(fmtQ(x.q, x.u, x.nome)) + '</span></li>';
+      };
+      var posto = function (x) { return ['frigo', 'freezer', 'dispensa'].indexOf(x.dove) >= 0 ? x.dove : ''; };
+      if (!d.some(function (x) { return x.dove; })) h += '<ul class="ali-lista ali-disp">' + d.map(riga).join('') + '</ul>';
+      else [['frigo', 'Frigo'], ['freezer', 'Freezer'], ['dispensa', 'Dispensa'], ['', 'Altro']].forEach(function (g) {
+        var el = d.filter(function (x) { return posto(x) === g[0]; });
+        if (el.length) h += '<h3 style="margin:14px 0 6px;font-size:14px;opacity:.8">' + g[1] + '</h3><ul class="ali-lista ali-disp">' + el.map(riga).join('') + '</ul>';
+      });
+    }
     h += '<p class="ali-pic">Quando segni un pasto «come da piano», le quantità usate vengono scalate da sole.</p>';
     return h;
   }
@@ -815,6 +856,7 @@
       ridisegna();
       caricaPiano();
       caricaMenuChef();
+      caricaDispensaRemota();
     },
     unmount: function () {
       chiudiVoce();
