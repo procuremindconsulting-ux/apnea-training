@@ -13,6 +13,8 @@ const DOMANDE_DEFAULT = [
   { id: 'dolori', testo: 'Dolori o fastidi? Dove e quanto?', tipo: 'testo', facoltativa: true }
 ];
 
+const HOME_BTN = '<a class="homebtn" href="#/" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></a>';
+
 const INTENSITA = ['facile', 'recupero', 'medio', 'forte', 'massimale'];
 
 /* ---------- stato ---------- */
@@ -414,7 +416,7 @@ function vSeduta() {
   }).join('');
   const tutti = s.esercizi.every((e) => ['fatto', 'saltato'].includes((c.esercizi[e.id] || {}).stato));
   return `
-  <div class="topbar"><a class="back" href="#/fisico">‹ Fisico</a><span class="pill" id="clock-seduta">0:00</span></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span><span class="pill" id="clock-seduta">0:00</span></div>
   <div class="eyebrow">${esc(etichettaTipo(s.tipo))}</div>
   <h1>${esc(s.titolo)}</h1>
   ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
@@ -439,7 +441,7 @@ function vEsercizio(i) {
   if (!ex) { location.hash = '#/seduta'; return ''; }
   const nav = `
   <div class="topbar">
-    <a class="back" href="#/seduta">‹ Seduta</a>
+    <span class="tb-left">${HOME_BTN}<a class="back" href="#/seduta">‹ Seduta</a></span>
     <span class="pill">${i + 1} / ${s.esercizi.length}</span>
     <span class="pill" id="clock-seduta">0:00</span>
   </div>`;
@@ -602,7 +604,7 @@ function vFine() {
   }).join('');
   const nonFatti = s.esercizi.filter((e) => ((S.corrente.esercizi[e.id] || {}).stato || 'da_fare') !== 'fatto').length;
   return `
-  <div class="topbar"><a class="back" href="#/seduta">‹ Seduta</a><span class="pill" id="clock-seduta">0:00</span></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/seduta">‹ Seduta</a></span><span class="pill" id="clock-seduta">0:00</span></div>
   <div class="eyebrow">Fine seduta</div>
   <h1>Com'è andata?</h1>
   ${nonFatti ? `<div class="note">${nonFatti} esercizi${nonFatti === 1 ? 'o' : ''} non completat${nonFatti === 1 ? 'o' : 'i'}: verranno segnalati al coach.</div>` : ''}
@@ -659,7 +661,7 @@ function vEsito(i) {
   const share = !!navigator.share;
   if (collegato()) {
     return `
-  <div class="topbar"><a class="back" href="#/fisico">‹ Fisico</a></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
   <div class="eyebrow">Seduta confermata ✓</div>
   <h1>${e.inviato ? 'Esito inviato al coach' : 'Invio al coach…'}</h1>
   <div class="card">
@@ -671,7 +673,7 @@ function vEsito(i) {
   <a class="btn primary" href="#/fisico" style="margin-top:14px">Fatto</a>`;
   }
   return `
-  <div class="topbar"><a class="back" href="#/fisico">‹ Fisico</a></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
   <div class="eyebrow">Seduta confermata ✓</div>
   <h1>Invia l'esito al coach</h1>
   <p class="muted">Mandalo nella chat del coach: ti risponderà con la prossima seduta, che poi carichi qui.</p>
@@ -686,7 +688,7 @@ function vEsito(i) {
 
 function vCarica() {
   return `
-  <div class="topbar"><a class="back" href="#/fisico">‹ Fisico</a></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
   <div class="eyebrow">Dal coach</div>
   <h1>Carica la seduta</h1>
   <p class="muted">Incolla qui la risposta del coach (anche tutto il messaggio: l'app trova da sola il blocco JSON), oppure scegli un file .json.</p>
@@ -716,7 +718,7 @@ function vStorico() {
       <span class="pill ${h.inviato ? 'ok' : 'warn'}">${h.inviato ? 'Inviato' : 'Da inviare'}</span></a>`;
   }).join('');
   return `
-  <div class="topbar"><a class="back" href="#/fisico">‹ Fisico</a></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
   <div class="eyebrow">Allenamento fisico</div>
   <h1>Storico</h1>
   ${righe || '<div class="card empty"><p class="muted">Ancora nessuna seduta confermata.</p></div>'}`;
@@ -966,7 +968,7 @@ function statoSync() {
 function vCollega() {
   const g = S.github || {};
   return `
-  <div class="topbar"><a class="back" href="#/fisico">‹ Fisico</a></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
   <div class="eyebrow">Una volta sola</div>
   <h1>Collega il coach</h1>
   <p class="muted">L'app legge le sedute che il coach scrive nel repository privato dei dati su GitHub e ci salva gli esiti. Il token resta solo su questo telefono.</p>
