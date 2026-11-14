@@ -300,6 +300,7 @@ function render() {
     default: html = vHome();
   }
   if (paginaModulo && paginaModulo !== pag && window.Mr9Alimentazione && window.Mr9Alimentazione.unmount) { try { window.Mr9Alimentazione.unmount(); } catch (e) {} }
+  if (pag !== '' && !html.includes('class="topbar"')) html = `<div class="topbar"><span class="tb-left">${HOME_BTN}</span></div>` + html;
   app.innerHTML = html;
   if (h !== ultimaPagina) { window.scrollTo(0, 0); ultimaPagina = h; }
   document.body.classList.toggle('focus', focus);
