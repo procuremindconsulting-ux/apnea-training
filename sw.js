@@ -8,7 +8,7 @@
  *
  * Per forzare l'aggiornamento di tutti i telefoni basta cambiare VERSION.
  */
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `mr9-${VERSION}`;
 
 const PRECACHE = [
@@ -16,6 +16,9 @@ const PRECACHE = [
   './index.html',
   './app.css',
   './app.js',
+  './alimentazione/ali.css',
+  './alimentazione/ali-dati.js',
+  './alimentazione/ali.js',
   './manifest.webmanifest',
   './pwa/pwa.js',
   './pwa/pwa.css',

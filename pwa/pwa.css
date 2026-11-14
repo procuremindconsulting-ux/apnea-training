@@ -31,7 +31,9 @@ body {
   margin: 0;
   min-height: var(--app-height);
   overscroll-behavior-y: none;
-  /* Contenuto lontano da notch, isola dinamica e barra home */
+}
+/* Facoltativo: contenuto lontano da notch e barra home, se l'app non lo gestisce già da sé */
+body.pwa-safe-padding {
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
   box-sizing: border-box;
 }
