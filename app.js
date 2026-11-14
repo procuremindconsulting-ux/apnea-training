@@ -15,7 +15,32 @@ const DOMANDE_DEFAULT = [
 
 const HOME_BTN = '<a class="homebtn" href="#/" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></a>';
 
-const INTENSITA = ['facile', 'recupero', 'medio', 'forte', 'massimale'];
+const INTENSITA = ['facile', 'recupero', 'medio', 'forte', 'massimale', 'respiro', 'apnea'];
+
+/* Apnea (Dave): domande di fine seduta e controlli di sicurezza predefiniti. */
+const DOMANDE_APNEA = [
+  { id: 'sforzo', testo: 'Sforzo massimo raggiunto (scala 0-10)', tipo: 'scala', min: 0, max: 10, etichette: ['Nessuno', 'Quasi scappando'] },
+  { id: 'sensazioni', testo: 'Come ti sei sentito?', tipo: 'scala', min: 1, max: 5, etichette: ['Molto male', 'Benissimo'] },
+  { id: 'regolare', testo: 'Tutto regolare? Niente samba, niente malesseri', tipo: 'scelta', opzioni: ['Sì', 'No'] },
+  { id: 'note_apnea', testo: 'Contrazioni, sintomi, testa: cosa hai notato?', tipo: 'testo', facoltativa: true }
+];
+const SICUREZZA_APNEA = [
+  'Il compagno è in acqua con te, pronto, e sa che seduta fai',
+  'Stai bene: nessun malessere, nessun sintomo strano dopo le ultime apnee',
+  'Niente iperventilazione prima delle apnee'
+];
+const DOMANDE_MENTALE = [
+  { id: 'calma', testo: 'Quanto ti senti calmo adesso?', tipo: 'scala', min: 1, max: 10, etichette: ['Agitato', 'Calmissimo'] },
+  { id: 'concentrazione', testo: 'Quanto sei rimasto concentrato?', tipo: 'scala', min: 1, max: 10, etichette: ['Per niente', 'Sempre'] },
+  { id: 'traccia', testo: 'Ti è piaciuto il sottofondo?', tipo: 'scelta', opzioni: ['Sì', 'Così così', 'No'] },
+  { id: 'note', testo: 'Note per Gus', tipo: 'testo', facoltativa: true }
+];
+// Tutte le sedute arrivano da fisico/coda.json: la pagina dove compaiono dipende dal tipo.
+const SEZIONI = { fisico: 'Fisico', apnea: 'Apnea', mentale: 'Mentale' };
+const sezTipo = (t) => (t === 'apnea' || t === 'mentale' ? t : 'fisico');
+const sezDi = (s) => (s && (s._sez || sezTipo(s.tipo))) || 'fisico';
+const sezEsito = (e) => (e && (e.sezione || sezTipo(e.tipo))) || 'fisico';
+const domandeDi = (s) => (Array.isArray(s.domande) && s.domande.length ? s.domande : ({ apnea: DOMANDE_APNEA, mentale: DOMANDE_MENTALE }[sezDi(s)] || DOMANDE_DEFAULT));
 
 /* ---------- stato ---------- */
 let S = carica();
@@ -24,10 +49,10 @@ function carica() {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      return Object.assign({ coda: [], storico: [], corrente: null, noteCoach: '' }, s);
+      return Object.assign({ coda: [], storico: [], corrente: null, noteCoach: '', voce: true }, s);
     }
   } catch (e) { /* storage non disponibile */ }
-  return { coda: [], storico: [], corrente: null, noteCoach: '' };
+  return { coda: [], storico: [], corrente: null, noteCoach: '', voce: true };
 }
 function salva() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Impossibile salvare sul dispositivo'); }
@@ -58,7 +83,7 @@ function toast(msg) {
   t.textContent = msg; t.hidden = false;
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2200);
 }
-const sedutaCorrente = () => S.coda[0] || null;
+const sedutaCorrente = (sez = 'fisico') => S.coda.find((s) => sezDi(s) === sez) || null;
 function trovaSeduta(id) { return S.coda.find((s) => s.id === id) || null; }
 
 /* ---------- audio, vibrazione, schermo acceso ---------- */
@@ -78,6 +103,94 @@ function beep(freq = 880, dur = 0.12, vol = 0.25) {
 }
 function segnaleFine() { beep(660, 0.15); setTimeout(() => beep(990, 0.35), 180); vibra([200, 80, 200]); }
 function segnaleConto() { beep(880, 0.08, 0.18); }
+// Voce (italiano) per le tabelle di apnea: il telefono resta sul bordo vasca, non serve guardarlo.
+function parla(testo) {
+  if (!S.voce) return;
+  try {
+    const ss = window.speechSynthesis; if (!ss) return;
+    ss.cancel();
+    const u = new SpeechSynthesisUtterance(testo); u.lang = 'it-IT'; u.rate = 1.05; u.volume = 1;
+    ss.speak(u);
+  } catch (e) {}
+}
+// Voce guida delle sedute mentali (Gus): legge il testo "guida" frase per frase, abbassando la musica mentre parla.
+let vocItaliana = null;
+function vocIt() {
+  try { if (!vocItaliana) vocItaliana = (speechSynthesis.getVoices() || []).find((v) => /^it/i.test(v.lang)) || null; } catch (e) {}
+  return vocItaliana;
+}
+try { speechSynthesis.addEventListener('voiceschanged', () => { vocItaliana = null; vocIt(); }); } catch (e) {}
+function parlaGuida(testo) {
+  if (!S.voce || !testo) return;
+  try {
+    const ss = window.speechSynthesis; if (!ss) return;
+    ss.cancel();
+    const frasi = String(testo).split(/(?<=[.!?…])\s+/).map((x) => x.trim()).filter(Boolean);
+    frasi.forEach((fr, k) => {
+      const u = new SpeechSynthesisUtterance(fr.replace(/…/g, ', ')); u.lang = 'it-IT'; u.rate = 0.9; u.pitch = 0.95;
+      const v = vocIt(); if (v) u.voice = v;
+      if (k === 0) u.onstart = () => sottofondoVolume(35);
+      if (k === frasi.length - 1) { u.onend = () => sottofondoVolume(80); u.onerror = () => sottofondoVolume(80); }
+      ss.speak(u);
+    });
+  } catch (e) {}
+}
+
+// Sottofondo da YouTube (sedute mentali): un piccolo player fisso fuori da #app, così non si
+// ricarica a ogni cambio di fase. Parte con il timer, si ferma in pausa e a fine seduta.
+const YT_S = { player: null, id: null, pronto: false, box: null };
+function ytId(url) {
+  const m = String(url || '').match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+let ytApi = null;
+function caricaYT() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (!ytApi) ytApi = new Promise((ok) => {
+    const prima = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prima) try { prima(); } catch (e) {} ok(); };
+    const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; sc.async = true;
+    sc.onerror = () => { ytApi = null; };
+    document.head.appendChild(sc);
+  });
+  return ytApi;
+}
+function sottofondoPrepara(s, visibile) {
+  const id = s && s.sottofondo && ytId(s.sottofondo.url);
+  if (!id) { sottofondoChiudi(); return; }
+  if (!YT_S.box) {
+    YT_S.box = document.createElement('div'); YT_S.box.id = 'sottofondo'; YT_S.box.className = 'ytbox';
+    YT_S.box.innerHTML = '<div class="ytt"></div><div id="yt-player"></div>';
+    document.body.appendChild(YT_S.box);
+  }
+  YT_S.box.querySelector('.ytt').textContent = '🎧 ' + (s.sottofondo.titolo || 'Sottofondo');
+  YT_S.box.hidden = !visibile;
+  document.body.classList.toggle('has-yt', !!visibile);
+  if (YT_S.id === id) return;
+  YT_S.id = id; YT_S.pronto = false;
+  caricaYT().then(() => {
+    if (YT_S.id !== id) return;
+    YT_S.player = new YT.Player('yt-player', {
+      videoId: id, width: '100%', height: '100%',
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1 },
+      events: { onReady: () => { YT_S.pronto = true; sottofondoVolume(80); if (T.tipo === 'int' && !T.inPausa) sottofondoPlay(); } }
+    });
+  }).catch(() => {});
+}
+function sottofondoPlay() { try { if (YT_S.pronto) YT_S.player.playVideo(); } catch (e) {} }
+function sottofondoPausa() { try { if (YT_S.pronto) YT_S.player.pauseVideo(); } catch (e) {} }
+function sottofondoVolume(v) { try { if (YT_S.pronto) YT_S.player.setVolume(v); } catch (e) {} }
+function sottofondoChiudi() {
+  try { if (YT_S.player) YT_S.player.destroy(); } catch (e) {}
+  if (YT_S.box) YT_S.box.remove();
+  Object.assign(YT_S, { player: null, id: null, pronto: false, box: null });
+  document.body.classList.remove('has-yt');
+}
+function fraseTempo(sec) {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  const mm = m ? (m === 1 ? 'un minuto' : `${m} minuti`) : '';
+  return mm && s ? `${mm} e ${s}` : (mm || `${s} secondi`);
+}
 function vibra(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
 let wakeLock = null;
 async function schermoAcceso(on) {
@@ -110,12 +223,14 @@ function validaScheda(obj) {
       if (!e.nome) throw new Error(`"${s.titolo}", esercizio ${j + 1}: manca il nome.`);
       if (!e.id) e.id = 'es' + (j + 1);
       if (!e.tipo) e.tipo = e.fasi ? 'intervalli' : (e.voci ? 'circuito' : 'serie');
-      if (!['serie', 'intervalli', 'circuito'].includes(e.tipo)) throw new Error(`"${e.nome}": tipo "${e.tipo}" non previsto (serie, intervalli, circuito).`);
-      if (e.tipo === 'intervalli' && (!Array.isArray(e.fasi) || !e.fasi.length)) throw new Error(`"${e.nome}": mancano le fasi dell'interval timer.`);
+      if (!['serie', 'intervalli', 'circuito', 'apnee'].includes(e.tipo)) throw new Error(`"${e.nome}": tipo "${e.tipo}" non previsto (serie, intervalli, circuito, apnee).`);
+      if ((e.tipo === 'intervalli' || e.tipo === 'apnee') && (!Array.isArray(e.fasi) || !e.fasi.length)) throw new Error(`"${e.nome}": mancano le fasi.`);
+      if (e.tipo === 'apnee' && !espandiFasi(e.fasi).some((f) => f.fase === 'apnea')) throw new Error(`"${e.nome}": nessuna fase di apnea.`);
       if (e.tipo === 'circuito' && !e.giri) e.giri = 1;
       if (e.tipo === 'serie' && !e.serie) e.serie = 1;
     });
   });
+  sedute.forEach((x) => { x._sez = sezTipo(x.tipo); });
   return { sedute, note: obj.note_coach || '' };
 }
 
@@ -126,8 +241,9 @@ function espandiFasi(fasi, out = [], prefisso = '') {
       const n = Math.max(1, f.ripeti || 1);
       for (let i = 1; i <= n; i++) espandiFasi(f.fasi, out, n > 1 ? `${i}/${n}` : '');
     } else {
-      const intens = INTENSITA.includes(f.intensita) ? f.intensita : 'medio';
-      out.push({ nome: f.nome || 'Fase', durata_s: f.durata_s || null, intensita: intens, note: f.note || '', giro: prefisso, metri: f.metri || null });
+      const fase = f.fase === 'apnea' || f.intensita === 'apnea' ? 'apnea' : (f.fase === 'respiro' || f.intensita === 'respiro' ? 'respiro' : null);
+      const intens = fase || (INTENSITA.includes(f.intensita) ? f.intensita : 'medio');
+      out.push({ nome: f.nome || (fase === 'apnea' ? 'Apnea' : fase === 'respiro' ? 'Respiro' : 'Fase'), durata_s: f.durata_s || null, intensita: intens, fase, note: f.note || '', giro: prefisso, metri: f.metri || null, sforzo: f.sforzo ?? null, annunci_s: f.annunci_s || null, guida: f.guida || '' });
     }
   });
   return out;
@@ -136,13 +252,17 @@ function espandiFasi(fasi, out = [], prefisso = '') {
 /* ---------- log della seduta corrente ---------- */
 function logEs(id) {
   const c = S.corrente; if (!c) return null;
-  if (!c.esercizi[id]) c.esercizi[id] = { stato: 'da_fare', serie: [], fasi_completate: 0, tempo_s: 0, note: '' };
+  if (!c.esercizi[id]) c.esercizi[id] = { stato: 'da_fare', serie: [], fasi_completate: 0, tempo_s: 0, note: '', apnee: [] };
+  if (!c.esercizi[id].apnee) c.esercizi[id].apnee = [];
   return c.esercizi[id];
 }
-function iniziaSeduta() {
-  const s = sedutaCorrente(); if (!s) return;
+function iniziaSeduta(sez = 'fisico', sicurezza) {
+  const s = sedutaCorrente(sez); if (!s || S.corrente) return;
+  if (sez === 'apnea' && !sicurezza) { location.hash = '#/sicurezza'; return; } // prima la conferma di sicurezza
   S.corrente = { sedutaId: s.id, inizio: new Date().toISOString(), esercizi: {}, risposte: {}, noteFinali: '' };
+  if (sicurezza) S.corrente.sicurezza = sicurezza;
   salva(); audio(); schermoAcceso(true);
+  if (sez === 'apnea') parla('Si parte. Mai da solo.');
   location.hash = '#/seduta';
 }
 
@@ -172,34 +292,63 @@ function intStato(ex) {
 function intAvvia(ex) {
   const log = logEs(ex.id);
   if (intAttivo(ex.id)) {
-    if (T.inPausa) { T.inPausa = false; T.inizioFase = Date.now() - T.elapsedPausa * 1000; }
+    if (T.inPausa) { T.inPausa = false; T.inizioFase = Date.now() - T.elapsedPausa * 1000; sottofondoPlay(); try { speechSynthesis.resume(); } catch (e) {} }
     return;
   }
+  sottofondoPlay();
   const fasi = espandiFasi(ex.fasi);
   const idx = Math.min(log.fasi_completate || 0, fasi.length - 1);
-  Object.assign(T, { tipo: 'int', exId: ex.id, fasi, idx, inizioFase: Date.now(), inPausa: false, elapsedPausa: 0, inizioTot: Date.now() - (log.tempo_s || 0) * 1000 });
+  Object.assign(T, { tipo: 'int', exId: ex.id, fasi, idx, inizioFase: Date.now(), inPausa: false, elapsedPausa: 0, inizioTot: Date.now() - (log.tempo_s || 0) * 1000, apnee: ex.tipo === 'apnee', detto: {} });
   log.stato = log.stato === 'fatto' ? 'fatto' : 'in_corso';
-  ultimoSecondo = null; segnaleConto(); salva();
+  ultimoSecondo = null; segnaleConto(); annunciaFase(); salva();
 }
-function intPausa() { if (T.tipo !== 'int' || T.inPausa) return; T.elapsedPausa = (Date.now() - T.inizioFase) / 1000; T.inPausa = true; }
+// Tabelle di apnea: all'inizio di ogni fase la voce dice "Apnea" o "Respira".
+function annunciaFase() {
+  if (T.tipo !== 'int') return;
+  T.detto = {};
+  const f = T.fasi[T.idx];
+  if (f.guida) { parlaGuida(f.guida); return; }
+  if (!T.apnee) return;
+  if (f.fase === 'apnea') { parla(f.sforzo != null ? `Apnea. Sforzo ${f.sforzo}` : 'Apnea'); vibra([400]); }
+  else if (f.fase === 'respiro') parla(f.durata_s ? `Respira. ${fraseTempo(f.durata_s)}` : 'Respira. Parti quando sei pronto');
+}
+// Registra il tempo (e i metri previsti) di una fase di apnea appena chiusa.
+function registraApnea(log, k, f, sec, completa) {
+  const n = T.fasi.slice(0, k + 1).filter((x) => x.fase === 'apnea').length;
+  const prima = log.apnee.find((a) => a.k === k) || {};
+  const voce = { k, n, nome: f.nome, prevista_s: f.durata_s || null, tempo_s: Math.round(sec), sforzo_previsto: f.sforzo, sforzo: prima.sforzo ?? '', metri: prima.metri ?? (f.metri || '') };
+  if (f.durata_s && !completa) voce.uscita_anticipata = true;
+  log.apnee = log.apnee.filter((a) => a.k !== k).concat(voce).sort((a, b) => a.k - b.k);
+}
+function intPausa() {
+  if (T.tipo !== 'int' || T.inPausa) return;
+  T.elapsedPausa = (Date.now() - T.inizioFase) / 1000; T.inPausa = true;
+  sottofondoPausa(); try { speechSynthesis.pause(); } catch (e) {}
+}
 function intElapsed() { return T.inPausa ? T.elapsedPausa : (Date.now() - T.inizioFase) / 1000; }
 function intAvanti(ex, auto) {
   if (T.tipo !== 'int') return;
   const log = logEs(ex.id);
+  const f = T.fasi[T.idx];
+  if (f.fase === 'apnea') registraApnea(log, T.idx, f, auto && f.durata_s ? f.durata_s : intElapsed(), !!auto);
   log.fasi_completate = Math.max(log.fasi_completate || 0, T.idx + 1);
   log.tempo_s = Math.round((Date.now() - T.inizioTot) / 1000);
   if (T.idx + 1 >= T.fasi.length) {
-    log.stato = 'fatto'; fermaTimer(); salva(); segnaleFine(); render(); toast('Intervalli completati');
+    const eraApnee = T.apnee;
+    log.stato = 'fatto'; fermaTimer(); salva(); segnaleFine(); render();
+    if (eraApnee) { parla('Fine. Ora segna lo sforzo di ogni apnea'); toast('Tabella completata'); } else toast('Intervalli completati');
+    const sa = sedutaAttiva(); if (sa && sa.sottofondo && prossimoDa(sa.esercizi.indexOf(ex)) === '#/fine') setTimeout(sottofondoPausa, 4000);
     return;
   }
   T.idx += 1; T.inizioFase = Date.now(); T.elapsedPausa = 0; T.inPausa = false; ultimoSecondo = null;
   if (auto) segnaleFine(); else segnaleConto();
+  annunciaFase();
   salva(); render();
 }
 function intIndietro() {
   if (T.tipo !== 'int') return;
   if (intElapsed() < 3 && T.idx > 0) T.idx -= 1;
-  T.inizioFase = Date.now(); T.elapsedPausa = 0; ultimoSecondo = null; render();
+  T.inizioFase = Date.now(); T.elapsedPausa = 0; ultimoSecondo = null; annunciaFase(); render();
 }
 
 setInterval(tick, 200);
@@ -217,6 +366,16 @@ function tick() {
     aggiornaCerchio(r, T.durata);
   } else if (T.tipo === 'int' && !T.inPausa) {
     const f = T.fasi[T.idx], el = intElapsed();
+    if (T.apnee) { // annunci a voce: 30" e 10" alla fine delle fasi a tempo; tempo trascorso nelle apnee libere, se richiesto
+      const say = (key, txt) => { if (!T.detto[key]) { T.detto[key] = 1; parla(txt); } };
+      if (f.durata_s) {
+        const r = Math.ceil(f.durata_s - el);
+        if (r === 30 && f.durata_s >= 50) say('30', '30 secondi');
+        if (r === 10 && f.durata_s >= 20) say('10', '10 secondi');
+      } else if (f.annunci_s && el >= f.annunci_s) {
+        const k = Math.floor(el / f.annunci_s) * f.annunci_s; say('t' + k, fraseTempo(k));
+      }
+    }
     if (f.durata_s) {
       const r = f.durata_s - el, sec = Math.ceil(r);
       if (sec !== ultimoSecondo) { if (sec <= 3 && sec > 0) segnaleConto(); ultimoSecondo = sec; }
@@ -286,17 +445,18 @@ function render() {
   let focus = false;
   switch (pag) {
     case '': html = vHome(); break;
-    case 'fisico': html = vFisico(); break;
+    case 'fisico': html = vSezione('fisico'); break;
+    case 'sicurezza': html = vSicurezza(); focus = true; break;
     case 'seduta': html = vSeduta(); focus = !!S.corrente; break;
     case 'es': html = vEsercizio(parseInt(parti[1], 10) || 0); focus = !!S.corrente; break;
     case 'fine': html = vFine(); focus = true; break;
     case 'esito': html = vEsito(parti[1]); break;
     case 'carica': html = vCarica(); break;
     case 'collega': html = vCollega(); break;
-    case 'storico': html = vStorico(); break;
+    case 'storico': html = vStorico(SEZIONI[parti[1]] ? parti[1] : 'fisico'); break;
     case 'regista': html = vRegista(parti[1] ? decodeURIComponent(parti[1]) : ''); break;
-    case 'apnea': html = vPresto('apnea', 'Apnea', 'Statica, dinamica, tabelle CO₂ e O₂ e diario delle sessioni in vasca.'); break;
-    case 'mentale': html = vPresto('mentale', 'Mentale', 'Diario dell’allenamento mentale: respirazione, visualizzazione, routine pre-gara.'); break;
+    case 'apnea': html = vSezione('apnea'); break;
+    case 'mentale': html = vSezione('mentale'); break;
     case 'alimentazione': html = window.Mr9Alimentazione ? '<div id="ali-root"></div>' : vPresto('cibo', 'Alimentazione', 'Diario dei pasti, idratazione e note sul peso.'); break;
     default: html = vHome();
   }
@@ -305,19 +465,37 @@ function render() {
   app.innerHTML = html;
   if (h !== ultimaPagina) { window.scrollTo(0, 0); ultimaPagina = h; }
   document.body.classList.toggle('focus', focus);
-  const tab = pag === '' ? 'home' : (['seduta', 'es', 'fine', 'esito', 'carica', 'storico', 'collega'].includes(pag) ? 'fisico' : pag === 'regista' ? 'home' : pag);
+  const sez = sezPagina(pag, parti);
+  document.body.dataset.sez = sez || '';
+  const tab = pag === '' ? 'home' : (sez || (['carica', 'collega'].includes(pag) ? 'fisico' : pag === 'regista' ? 'home' : pag));
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
   collega(pag, parti);
+  const att = sedutaAttiva();
+  if (att && att.sottofondo) sottofondoPrepara(att, ['seduta', 'es', 'fine'].includes(pag)); else if (YT_S.box) sottofondoChiudi();
   paginaModulo = null;
   if (pag === 'alimentazione' && window.Mr9Alimentazione) { paginaModulo = pag; try { window.Mr9Alimentazione.mount($('#ali-root'), { percorso: parti.slice(1) }); } catch (e) { console.error(e); } }
   tick();
 }
 
+// A quale sezione appartiene la pagina (colori, tab attiva, link "indietro").
+function sezPagina(pag, parti) {
+  if (SEZIONI[pag]) return pag;
+  if (pag === 'sicurezza') return 'apnea';
+  if (['seduta', 'es', 'fine'].includes(pag)) { const s = sedutaAttiva(); return s ? sezDi(s) : 'fisico'; }
+  if (pag === 'esito') { const h = S.storico[parseInt(parti[1], 10)]; return h ? sezEsito(h.esito) : 'fisico'; }
+  if (pag === 'storico') return SEZIONI[parti[1]] ? parti[1] : 'fisico';
+  return null;
+}
+const indietro = (sez) => `<a class="back" href="#/${sez}">‹ ${SEZIONI[sez] || 'Fisico'}</a>`;
+const chiAllena = (sez) => ({ apnea: 'Dave', mentale: 'Gus' }[sez] || 'il coach');
+
 /* ---------- viste ---------- */
-function statoFisico() {
-  if (S.corrente) return 'Seduta in corso';
-  if (sedutaCorrente()) return 'Seduta pronta';
-  return 'In attesa del coach';
+function statoFisico(sez = 'fisico') {
+  const att = sedutaAttiva();
+  if (S.corrente && att && sezDi(att) === sez) return 'Seduta in corso';
+  const s = sedutaCorrente(sez);
+  if (s) return s.data ? `Pronta · ${dataIt(s.data)}` : 'Seduta pronta';
+  return sez === 'fisico' ? 'In attesa del coach' : `In attesa di ${chiAllena(sez)}`;
 }
 function vHome() {
   const ora = new Date().getHours();
@@ -330,67 +508,113 @@ function vHome() {
       <span class="tbadge">${esc(statoFisico())}</span>
       <div><div class="tname">Allenamento fisico</div><div class="tsub">Palestra e aerobico</div></div>
     </a>
-    <a class="tile apnea soon" href="#/apnea"><span class="tbadge">Presto</span><div><div class="tname">Apnea</div><div class="tsub">Statica e dinamica</div></div></a>
-    <a class="tile mentale soon" href="#/mentale"><span class="tbadge">Presto</span><div><div class="tname">Mentale</div><div class="tsub">Diario</div></div></a>
+    <a class="tile apnea" href="#/apnea"><span class="tbadge">${esc(statoFisico('apnea'))}</span><div><div class="tname">Apnea</div><div class="tsub">Statica e dinamica</div></div></a>
+    <a class="tile mentale" href="#/mentale"><span class="tbadge">${esc(statoFisico('mentale'))}</span><div><div class="tname">Mentale</div><div class="tsub">Sedute guidate</div></div></a>
     <a class="tile cibo big ${window.Mr9Alimentazione ? '' : 'soon'}" href="#/alimentazione" style="min-height:120px"><span class="tbadge">${window.Mr9Alimentazione ? 'Oggi' : 'Presto'}</span><div><div class="tname">Alimentazione</div><div class="tsub">Diario</div></div></a>
     <a class="tile regista big" href="#/regista" style="min-height:96px"><span class="tbadge">${esc(statoMessaggi())}</span><div><div class="tname">Messaggio al regista</div><div class="tsub">Allenamento, cibo, dispensa, spesa: detta e lui smista</div></div></a>
   </div>`;
 }
 
-function etichettaTipo(t) { return ({ palestra: 'Palestra', corsa: 'Corsa', nuoto: 'Nuoto', bici: 'Bici', misto: 'Misto' })[t] || 'Allenamento'; }
+function etichettaTipo(t, s) {
+  if (t === 'mentale') return 'Mentale';
+  if (t === 'apnea') return 'Apnea' + (s && s.disciplina ? ' · ' + ({ statica: 'Statica', dinamica: 'Dinamica', secco: 'A secco' }[s.disciplina] || s.disciplina) : '');
+  return ({ palestra: 'Palestra', corsa: 'Corsa', nuoto: 'Nuoto', bici: 'Bici', misto: 'Misto' })[t] || 'Allenamento';
+}
 
-function vFisico() {
-  const s = sedutaCorrente();
+function vFisico() { return vSezione('fisico'); }
+function vSezione(sez) {
+  const s = sedutaCorrente(sez);
+  const att = sedutaAttiva();
+  const apnea = sez === 'apnea';
+  const nota = sez === 'fisico' ? S.noteCoach : '';
   let hero;
-  if (S.corrente && s) {
-    const fatti = s.esercizi.filter((e) => ['fatto', 'saltato'].includes((S.corrente.esercizi[e.id] || {}).stato)).length;
+  if (S.corrente && att && sezDi(att) === sez) {
+    const fatti = att.esercizi.filter((e) => ['fatto', 'saltato'].includes((S.corrente.esercizi[e.id] || {}).stato)).length;
     hero = `
     <div class="hero">
       <span class="tag">In corso</span>
-      <h2>${esc(s.titolo)}</h2>
+      <h2>${esc(att.titolo)}</h2>
       <div class="stats">
-        <div class="stat"><b>${fatti}/${s.esercizi.length}</b><span>Esercizi</span></div>
+        <div class="stat"><b>${fatti}/${att.esercizi.length}</b><span>Esercizi</span></div>
         <div class="stat"><b id="clock-seduta">0:00</b><span>Tempo</span></div>
       </div>
       <a class="btn primary" href="#/seduta">Riprendi la seduta</a>
     </div>`;
+  } else if (S.corrente && att) {
+    hero = `
+    <div class="card">
+      <h2>C’è una seduta di ${esc(SEZIONI[sezDi(att)].toLowerCase())} in corso</h2>
+      <p class="muted">${esc(att.titolo)}: chiudila prima di iniziarne un’altra.</p>
+      <a class="btn" href="#/seduta">Vai alla seduta in corso</a>
+    </div>`;
   } else if (s) {
+    const nApnee = apnea ? s.esercizi.reduce((n, e) => n + (e.tipo === 'apnee' ? espandiFasi(e.fasi).filter((f) => f.fase === 'apnea').length : 0), 0) : 0;
     hero = `
     <div class="hero">
-      <span class="tag">${esc(etichettaTipo(s.tipo))}${s.data ? ' · ' + esc(dataIt(s.data)) : ''}</span>
+      <span class="tag">${esc(etichettaTipo(s.tipo, s))}${s.data ? ' · ' + esc(dataIt(s.data)) : ''}</span>
       <h2>${esc(s.titolo)}</h2>
       <div class="stats">
-        <div class="stat"><b>${s.esercizi.length}</b><span>Esercizi</span></div>
+        ${nApnee ? `<div class="stat"><b>${nApnee}</b><span>Apnee</span></div>` : `<div class="stat"><b>${s.esercizi.length}</b><span>Esercizi</span></div>`}
         ${s.durata_stimata_min ? `<div class="stat"><b>${esc(s.durata_stimata_min)}'</b><span>Durata</span></div>` : ''}
+        ${s.sforzo_max != null ? `<div class="stat"><b>${esc(s.sforzo_max)}</b><span>Sforzo max</span></div>` : ''}
       </div>
       ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
-      <button class="btn primary" id="b-inizia">Inizia la seduta</button>
+      ${apnea ? '<div class="note safe">Mai da solo in acqua: prima di partire confermi che il compagno c’è.</div>' : ''}
+      ${s.sottofondo && s.sottofondo.titolo ? `<div class="note">🎧 ${esc(s.sottofondo.titolo)}${s.sottofondo.durata_s ? ' · ' + fmtBreve(s.sottofondo.durata_s) : ''}</div>` : ''}
+      <button class="btn primary" id="b-inizia" data-sez="${sez}">Inizia la seduta</button>
     </div>`;
   } else {
     hero = `
     <div class="card empty">
-      <div class="big">⏳</div>
+      <div class="big">${apnea ? '🌊' : sez === 'mentale' ? '🧘' : '⏳'}</div>
       <h2>Nessuna seduta pronta</h2>
       ${collegato()
-        ? '<p class="muted">Il coach non ha ancora preparato la prossima seduta. Controllo ogni volta che apri l\u2019app.</p><button class="btn primary" id="b-sync">Controlla adesso</button>'
-        : '<p class="muted">Collega l\u2019app al coach: le sedute arriveranno qui da sole.</p><a class="btn primary" href="#/collega">Collega il coach</a>'}
+        ? `<p class="muted">${apnea ? 'Dave non ha ancora preparato la prossima seduta in acqua.' : sez === 'mentale' ? 'Gus non ha ancora preparato la prossima seduta guidata.' : 'Il coach non ha ancora preparato la prossima seduta.'} Controllo ogni volta che apri l’app.</p><button class="btn primary" id="b-sync">Controlla adesso</button>`
+        : '<p class="muted">Collega l’app al database: le sedute arriveranno qui da sole.</p><a class="btn primary" href="#/collega">Collega il coach</a>'}
     </div>`;
   }
-  const ultimo = S.storico[S.storico.length - 1];
+  const mie = S.storico.map((h, i) => [h, i]).filter(([h]) => sezEsito(h.esito) === sez);
+  const ultimo = mie[mie.length - 1];
   return `
-  <div class="eyebrow">Allenamento fisico</div>
+  <div class="eyebrow">${{ apnea: 'Apnea · con Dave', mentale: 'Mentale · con Gus' }[sez] || 'Allenamento fisico'}</div>
   <h1>Oggi</h1>
   ${hero}
-  ${S.noteCoach && !S.corrente ? `<div class="card"><div class="eyebrow" style="margin-bottom:6px">Dal coach</div>${esc(S.noteCoach)}</div>` : ''}
+  ${nota && !S.corrente ? `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${apnea ? 'Da Dave' : 'Dal coach'}</div>${esc(nota)}</div>` : ''}
   <div class="row" style="margin-top:6px">
     ${collegato() ? '<button class="btn" id="b-sync2">Aggiorna</button>' : '<a class="btn" href="#/collega">Collega il coach</a>'}
-    <a class="btn" href="#/storico">Storico${S.storico.length ? ' (' + S.storico.length + ')' : ''}</a>
+    <a class="btn" href="#/storico/${sez}">Storico${mie.length ? ' (' + mie.length + ')' : ''}</a>
   </div>
-  ${ultimo && !ultimo.inviato ? `<div class="card" style="margin-top:12px"><div class="hist"><div><b>Esito da inviare</b><div class="small muted">${esc(ultimo.titolo)}</div></div><a class="btn sm" href="#/esito/${S.storico.length - 1}">Invia</a></div></div>` : ''}
+  ${ultimo && !ultimo[0].inviato ? `<div class="card" style="margin-top:12px"><div class="hist"><div><b>Esito da inviare</b><div class="small muted">${esc(ultimo[0].esito.titolo)}</div></div><a class="btn sm" href="#/esito/${ultimo[1]}">Invia</a></div></div>` : ''}
   ${collegato() ? `<p class="small muted" style="text-align:center;margin-top:14px"><a href="#/collega">${statoSync()}</a></p>` : ''}`;
 }
 
+// Conferma di sicurezza prima di ogni seduta di apnea: un controllo per riga, il pulsante si accende solo con tutti spuntati.
+function ultimoMalessere() {
+  const h = S.storico.slice().reverse().find((x) => sezEsito(x.esito) === 'apnea');
+  return !!(h && (h.esito.risposte || []).some((r) => r.id === 'regolare' && r.valore === 'No'));
+}
+function vSicurezza() {
+  const s = sedutaCorrente('apnea');
+  if (!s || S.corrente) return vSezione('apnea');
+  const voci = (Array.isArray(s.sicurezza) && s.sicurezza.length ? s.sicurezza : SICUREZZA_APNEA).slice();
+  if (s.compagno) voci[0] = `Il compagno (${s.compagno}) è in acqua con te, pronto, e sa che seduta fai`;
+  if (ultimoMalessere()) voci.unshift('L’ultima volta hai segnato un malessere: hai sentito il medico e puoi riprendere');
+  return `
+  <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro('apnea')}</span></div>
+  <div class="eyebrow">Prima di entrare in acqua</div>
+  <h1>Sicurezza</h1>
+  ${ultimoMalessere() ? '<div class="note" style="border-color:var(--bad)">Dopo un malessere in apnea niente apnee finché non hai sentito il medico.</div>' : ''}
+  <div class="checks">${voci.map((v, k) => `<button type="button" class="check" data-k="${k}" aria-pressed="false"><span class="box"></span><span>${esc(v)}</span></button>`).join('')}</div>
+  <button class="btn primary" id="b-sicuro" disabled>Confermo: iniziamo</button>
+  <p class="small muted" style="text-align:center;margin-top:10px">Tetto di sforzo in allenamento: 7. L’8 solo in gara.</p>`;
+}
+
 function riassuntoEs(ex) {
+  if (ex.tipo === 'apnee') {
+    const f = espandiFasi(ex.fasi); const n = f.filter((x) => x.fase === 'apnea').length;
+    const tot = f.every((x) => x.durata_s) ? f.reduce((a, x) => a + x.durata_s, 0) : 0;
+    return `${n} apne${n === 1 ? 'a' : 'e'}${tot ? ' · ' + fmtBreve(tot) : ''}`;
+  }
   if (ex.tipo === 'intervalli') {
     const f = espandiFasi(ex.fasi);
     const tot = f.reduce((a, x) => a + (x.durata_s || 0), 0);
@@ -407,7 +631,7 @@ function riassuntoEs(ex) {
 function vSeduta() {
   const s = sedutaAttiva();
   if (!s) { return vFisico(); }
-  const c = S.corrente;
+  const c = S.corrente; const sez = sezDi(s);
   const items = s.esercizi.map((ex, i) => {
     const st = (c.esercizi[ex.id] || {}).stato || 'da_fare';
     const cls = st === 'fatto' ? 'done' : st === 'saltato' ? 'skip' : '';
@@ -419,8 +643,8 @@ function vSeduta() {
   }).join('');
   const tutti = s.esercizi.every((e) => ['fatto', 'saltato'].includes((c.esercizi[e.id] || {}).stato));
   return `
-  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span><span class="pill" id="clock-seduta">0:00</span></div>
-  <div class="eyebrow">${esc(etichettaTipo(s.tipo))}</div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro(sez)}</span><span class="pill" id="clock-seduta">0:00</span></div>
+  <div class="eyebrow">${esc(etichettaTipo(s.tipo, s))}</div>
   <h1>${esc(s.titolo)}</h1>
   ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
   <ul class="exlist">${items}</ul>
@@ -456,17 +680,18 @@ function vEsercizio(i) {
   const ultimo = i + 1 >= s.esercizi.length;
   let corpo = '';
   if (ex.tipo === 'intervalli') corpo = vIntervalli(ex, ultimo);
+  else if (ex.tipo === 'apnee') corpo = vApnee(ex, ultimo);
   else corpo = vSerie(ex, ultimo);
   const log = logEs(ex.id);
-  const altri = ex.tipo === 'intervalli'
+  const altri = ex.tipo === 'intervalli' || ex.tipo === 'apnee'
     ? `<button class="btn sm" id="b-int-prev" style="width:100%">‹ Torna alla fase prima</button>
        <button class="btn sm ghost" id="b-int-reset" style="width:100%">Ricomincia da capo</button>`
     : (log.serie.length ? `<button class="btn sm ghost" id="b-annulla-serie" style="width:100%">Annulla ultim${ex.tipo === 'circuito' ? 'o giro' : 'a serie'}</button>` : '');
   const piede = `
   <div class="sotto">
     <div class="card">
-      <label class="small muted" for="nota-es" style="font-weight:800">Nota per il coach (facoltativa)</label>
-      <textarea id="nota-es" placeholder="Es. carico facile, nessun dolore, FC media 138…" style="min-height:64px;margin-top:6px">${esc(log.note)}</textarea>
+      <label class="small muted" for="nota-es" style="font-weight:800">Nota per ${chiAllena(sezDi(s))} (facoltativa)</label>
+      <textarea id="nota-es" placeholder="${sezDi(s) === 'apnea' ? 'Es. contrazioni presto, testa tranquilla, fase A lunga…' : 'Es. carico facile, nessun dolore, FC media 138…'}" style="min-height:64px;margin-top:6px">${esc(log.note)}</textarea>
     </div>
     <div class="stack">
       ${log.stato !== 'fatto' ? `<button class="btn" id="b-salta">${log.stato === 'saltato' ? 'Annulla salto' : 'Salta questo esercizio'}</button>` : ''}
@@ -558,8 +783,10 @@ function vIntervalli(ex, ultimo) {
   else if (st.inPausa) azione = 'In pausa · tocca per riprendere';
   else if (!f.durata_s) azione = 'Tocca quando hai finito questa fase';
   else azione = 'Tocca per mettere in pausa';
+  const conGuida = fasi.some((x) => x.guida);
   return `
-  <div class="presc"><span class="chip"><b>${fasi.length}</b> fasi</span>${totale ? `<span class="chip">Totale <b>${fmtBreve(totale)}</b></span>` : ''}</div>
+  <div class="presc"><span class="chip"><b>${fasi.length}</b> fasi</span>${totale ? `<span class="chip">Totale <b>${fmtBreve(totale)}</b></span>` : ''}
+    ${conGuida ? `<button type="button" class="chip" id="b-voce">${S.voce ? '🔊 Voce guida' : '🔇 Voce spenta'}</button>` : ''}</div>
   <div class="phasebox tap i-${finito ? 'facile' : f.intensita}" id="phasebox" role="button">
     <div class="pinfo" id="pinfo">${finito ? 'Completato' : `Fase ${idx + 1} di ${fasi.length}${f.giro ? ' · ' + esc(f.giro) : ''}`}</div>
     <div class="pname" id="pname">${finito ? 'Fatto!' : esc(f.nome)}</div>
@@ -568,10 +795,75 @@ function vIntervalli(ex, ultimo) {
     <div class="pinfo" id="pnext">${finito ? '' : (f.note ? esc(f.note) + ' · ' : '') + (!f.durata_s ? 'Fase libera' : (prossima ? `Poi: ${esc(prossima.nome)} ${prossima.durata_s ? fmtBreve(prossima.durata_s) : ''}` : 'Ultima fase'))}</div>
   </div>
   <div class="progress"><div id="pbar" style="width:${finito ? 100 : Math.round((idx / fasi.length) * 100)}%"></div></div>
+  ${!finito && f.guida ? `<div class="guida">${esc(f.guida)}</div>` : ''}
   ${finito ? '' : `<div class="row" style="margin-bottom:12px">
     <button class="btn" id="b-int-next">Salta fase ›</button>
     <button class="btn" id="b-termina" style="color:var(--bad)">Termina allenamento</button>
   </div>`}
+  <ul class="phases">${lista}</ul>`;
+}
+// Tabella di apnea: fasi "respiro" e "apnea". Il riquadro grande è l'unico pulsante:
+// parte la tabella, chiude un'apnea ("esco"), fa partire l'apnea dopo un respiro libero.
+// I respiri a tempo finiscono da soli. Alla fine si segna lo sforzo 0-10 di ogni apnea.
+function parseTempo(v) {
+  v = String(v || '').trim().replace(/[’'"]/g, ':').replace(/:+$/, '');
+  if (!v) return '';
+  if (v.includes(':')) { const [m, sec] = v.split(':'); return (parseInt(m, 10) || 0) * 60 + (parseInt(sec, 10) || 0); }
+  const n = parseInt(v, 10); return Number.isFinite(n) ? n : '';
+}
+function vApnee(ex, ultimo) {
+  const log = logEs(ex.id);
+  const fasi = espandiFasi(ex.fasi);
+  const st = intStato(ex);
+  const idx = st ? st.idx : Math.min(log.fasi_completate || 0, fasi.length - 1);
+  const finito = log.stato === 'fatto' && !st;
+  const f = fasi[idx];
+  const nTot = fasi.filter((x) => x.fase === 'apnea').length;
+  const nQui = fasi.slice(0, idx + 1).filter((x) => x.fase === 'apnea').length;
+  const conMetri = fasi.some((x) => x.fase === 'apnea' && x.metri);
+  const totale = fasi.every((x) => x.durata_s) ? fasi.reduce((a, x) => a + x.durata_s, 0) : 0;
+  const prossima = fasi[idx + 1];
+  let azione;
+  if (finito) azione = ultimo ? 'Tocca per chiudere la seduta' : 'Tocca per l’esercizio successivo';
+  else if (!st) azione = log.fasi_completate ? 'Tocca per riprendere' : 'Tocca per partire';
+  else if (f.fase === 'apnea') azione = f.durata_s ? 'Tocca solo se esci prima' : 'Tocca quando esci';
+  else if (!f.durata_s) azione = 'Tocca per partire con l’apnea';
+  else azione = 'L’apnea parte da sola';
+  const dettagli = [];
+  if (!finito && f.fase === 'apnea') { dettagli.push(`Apnea ${nQui} di ${nTot}`); if (f.metri) dettagli.push(`${f.metri} m`); if (f.sforzo != null) dettagli.push(`sforzo ${f.sforzo}`); }
+  else if (!finito) dettagli.push(`Fase ${idx + 1} di ${fasi.length}${f.giro ? ' · ' + f.giro : ''}`);
+  const lista = fasi.map((x, k) => `<li class="${k < idx || finito ? 'past' : k === idx ? 'cur' : ''}"><span class="pc i-${x.intensita}"></span>${esc(x.nome)}${x.sforzo != null ? ` <span class="muted small">sforzo ${esc(x.sforzo)}</span>` : ''}<span class="pd">${x.durata_s ? fmtBreve(x.durata_s) : (x.metri ? x.metri + ' m' : 'libera')}</span></li>`).join('');
+  const running = st && !st.inPausa;
+  const tabella = !running && log.apnee.length ? `
+  <div class="card" style="margin-top:4px">
+    <div class="eyebrow" style="margin-bottom:6px">Le tue apnee</div>
+    <table class="setlog apnlog">
+      <tr><th>#</th><th>Tempo</th>${conMetri ? '<th>Metri</th>' : ''}<th>Sforzo 0-10</th></tr>
+      ${log.apnee.map((a, j) => `<tr>
+        <td class="sn">${a.n}</td>
+        <td><input inputmode="numeric" data-j="${j}" data-f="tempo_s" value="${esc(a.tempo_s === '' ? '' : fmt(a.tempo_s))}">${a.uscita_anticipata ? '<div class="small" style="color:var(--warn);text-align:center">uscito prima</div>' : ''}</td>
+        ${conMetri ? `<td><input inputmode="numeric" data-j="${j}" data-f="metri" value="${esc(a.metri)}"></td>` : ''}
+        <td><input inputmode="numeric" data-j="${j}" data-f="sforzo" value="${esc(a.sforzo)}" placeholder="${a.sforzo_previsto != null ? 'prev. ' + esc(a.sforzo_previsto) : ''}"></td>
+      </tr>`).join('')}
+    </table>
+    <p class="small muted" style="margin:8px 0 0">Sforzo: 4 fase A stabile · 5 contrazioni sostenibili · 6 contrazioni intense, primi sintomi · 7 sintomi gestiti, margine chiaro · 8 solo in gara.</p>
+  </div>` : '';
+  return `
+  <div class="presc"><span class="chip"><b>${nTot}</b> apne${nTot === 1 ? 'a' : 'e'}</span>${totale ? `<span class="chip">Totale <b>${fmtBreve(totale)}</b></span>` : ''}
+    <button type="button" class="chip" id="b-voce">${S.voce ? '🔊 Voce attiva' : '🔇 Voce spenta'}</button></div>
+  <div class="phasebox tap i-${finito ? 'facile' : f.intensita}" id="phasebox" role="button">
+    <div class="pinfo" id="pinfo">${finito ? 'Completata' : esc(dettagli.join(' · '))}</div>
+    <div class="pname" id="pname">${finito ? 'Fatto!' : esc(f.nome)}</div>
+    <div class="ptime" id="ptime">${finito ? fmt(log.tempo_s || 0) : f.durata_s ? fmt(f.durata_s) : '0:00'}</div>
+    <div class="paz">${azione}</div>
+    <div class="pinfo" id="pnext">${finito ? '' : (f.note ? esc(f.note) + ' · ' : '') + (prossima ? `Poi: ${esc(prossima.nome)} ${prossima.durata_s ? fmtBreve(prossima.durata_s) : ''}` : 'Ultima fase')}</div>
+  </div>
+  <div class="progress"><div id="pbar" style="width:${finito ? 100 : Math.round((idx / fasi.length) * 100)}%"></div></div>
+  ${finito ? '' : `<div class="row" style="margin-bottom:12px">
+    <button class="btn" id="b-int-next">Salta fase ›</button>
+    <button class="btn" id="b-termina" style="color:var(--bad)">Termina</button>
+  </div>`}
+  ${tabella}
   <ul class="phases">${lista}</ul>`;
 }
 function aggiornaIntervalli() {
@@ -586,7 +878,7 @@ function aggiornaIntervalli() {
 function vFine() {
   const s = sedutaAttiva();
   if (!s) return vFisico();
-  const domande = Array.isArray(s.domande) && s.domande.length ? s.domande : DOMANDE_DEFAULT;
+  const domande = domandeDi(s);
   const r = S.corrente.risposte;
   const qs = domande.map((d) => {
     const v = r[d.id];
@@ -610,23 +902,27 @@ function vFine() {
   <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/seduta">‹ Seduta</a></span><span class="pill" id="clock-seduta">0:00</span></div>
   <div class="eyebrow">Fine seduta</div>
   <h1>Com'è andata?</h1>
-  ${nonFatti ? `<div class="note">${nonFatti} esercizi${nonFatti === 1 ? 'o' : ''} non completat${nonFatti === 1 ? 'o' : 'i'}: verranno segnalati al coach.</div>` : ''}
+  ${nonFatti ? `<div class="note">${nonFatti} esercizi${nonFatti === 1 ? 'o' : ''} non completat${nonFatti === 1 ? 'o' : 'i'}: verranno segnalati a ${chiAllena(sezDi(s))}.</div>` : ''}
   <div class="card">${qs}
-    <div class="q" style="margin-bottom:0"><label class="ql" for="q-note">Altro da dire al coach?</label><textarea id="q-note" placeholder="Facoltativo">${esc(S.corrente.noteFinali)}</textarea></div>
+    <div class="q" style="margin-bottom:0"><label class="ql" for="q-note">Altro da dire a ${chiAllena(sezDi(s))}?</label><textarea id="q-note" placeholder="Facoltativo">${esc(S.corrente.noteFinali)}</textarea></div>
   </div>
   <button class="btn ok" id="b-conferma">Conferma seduta eseguita</button>`;
 }
 
 function costruisciEsito() {
   const s = sedutaAttiva(); const c = S.corrente;
-  const domande = Array.isArray(s.domande) && s.domande.length ? s.domande : DOMANDE_DEFAULT;
+  const domande = domandeDi(s);
   const fine = new Date();
+  const extra = sezDi(s) === 'apnea' ? { disciplina: s.disciplina || null, sicurezza: c.sicurezza || null } : {};
+  if (s.sottofondo) extra.sottofondo = { titolo: s.sottofondo.titolo || null, url: s.sottofondo.url || null, durata_s: s.sottofondo.durata_s || null };
   return {
     formato: FORMATO_ESITO,
     app_versione: APP_VERSIONE,
     seduta_id: s.id,
     titolo: s.titolo,
+    sezione: sezDi(s),
     tipo: s.tipo || null,
+    ...extra,
     data_prevista: s.data || null,
     inizio: c.inizio,
     fine: fine.toISOString(),
@@ -636,6 +932,18 @@ function costruisciEsito() {
       const o = { id: ex.id, nome: ex.nome, tipo: ex.tipo, stato: l.stato === 'in_corso' ? 'parziale' : l.stato === 'da_fare' ? 'non_fatto' : l.stato };
       if (ex.tipo === 'intervalli') {
         o.fasi_totali = espandiFasi(ex.fasi).length; o.fasi_completate = l.fasi_completate || 0; o.tempo_s = l.tempo_s || 0;
+      } else if (ex.tipo === 'apnee') {
+        const fasi = espandiFasi(ex.fasi);
+        o.apnee_previste = fasi.filter((f) => f.fase === 'apnea').length;
+        o.fasi_totali = fasi.length; o.fasi_completate = l.fasi_completate || 0; o.tempo_s = l.tempo_s || 0;
+        o.apnee = (l.apnee || []).map((a) => {
+          const x = { n: a.n, nome: a.nome, tempo_s: a.tempo_s === '' ? null : a.tempo_s, sforzo: a.sforzo === '' ? null : a.sforzo };
+          if (a.prevista_s) x.prevista_s = a.prevista_s;
+          if (a.sforzo_previsto != null) x.sforzo_previsto = a.sforzo_previsto;
+          if (a.metri !== '' && a.metri != null) x.metri = a.metri;
+          if (a.uscita_anticipata) x.uscita_anticipata = true;
+          return x;
+        });
       } else if (ex.tipo === 'circuito') {
         o.prescritto = { giri: ex.giri }; o.giri_fatti = (l.serie || []).length;
       } else {
@@ -662,25 +970,30 @@ function vEsito(i) {
   if (!e) return vFisico();
   const testo = testoPerCoach(e.esito);
   const share = !!navigator.share;
+  const sez = sezEsito(e.esito); const chi = chiAllena(sez);
+  const allarme = (e.esito.risposte || []).some((r) => r.id === 'regolare' && r.valore === 'No')
+    ? '<div class="note" style="border-color:var(--bad)"><b>Hai segnato un malessere.</b> Niente apnee finché non hai sentito il medico. Raccontalo a Dave o al regista.</div>' : '';
   if (collegato()) {
     return `
-  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro(sez)}</span></div>
   <div class="eyebrow">Seduta confermata ✓</div>
-  <h1>${e.inviato ? 'Esito inviato al coach' : 'Invio al coach…'}</h1>
+  <h1>${e.inviato ? `Esito inviato a ${chi}` : `Invio a ${chi}…`}</h1>
+  ${allarme}
   <div class="card">
     ${e.inviato
-      ? '<p style="margin:0">Il coach lo legge al prossimo controllo e prepara la seduta successiva, che comparirà da sola nella pagina Fisico.</p>'
+      ? `<p style="margin:0">${sez === 'fisico' ? 'Il coach' : chiAllena(sez)} lo legge al prossimo controllo e prepara la seduta successiva, che comparirà da sola nella pagina ${SEZIONI[sez]}.</p>`
       : `<p style="margin:0">Non sono ancora riuscito a inviarlo${S.sync && S.sync.errore ? ' (' + esc(S.sync.errore) + ')' : ''}. Riprovo da solo appena c\u2019è connessione.</p><button class="btn" id="b-reinvia" style="margin-top:12px">Riprova adesso</button>`}
   </div>
   <a class="btn" href="#/regista/${encodeURIComponent(e.esito.seduta_id)}" style="margin-top:14px">Racconta di più al regista</a>
   <details style="margin-top:14px"><summary>Vedi l'esito</summary><textarea class="code" readonly id="t-esito">${esc(testo)}</textarea></details>
-  <a class="btn primary" href="#/fisico" style="margin-top:14px">Fatto</a>`;
+  <a class="btn primary" href="#/${sez}" style="margin-top:14px">Fatto</a>`;
   }
   return `
-  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro(sez)}</span></div>
+  ${allarme}
   <div class="eyebrow">Seduta confermata ✓</div>
-  <h1>Invia l'esito al coach</h1>
-  <p class="muted">Mandalo nella chat del coach: ti risponderà con la prossima seduta, che poi carichi qui.</p>
+  <h1>Invia l'esito a ${chi}</h1>
+  <p class="muted">Mandalo nella chat di ${chi}: ti risponderà con la prossima seduta, che poi carichi qui.</p>
   <div class="stack">
     ${share ? '<button class="btn primary" id="b-share">Condividi con Claude</button>' : ''}
     <button class="btn ${share ? '' : 'primary'}" id="b-copia">Copia il testo</button>
@@ -707,23 +1020,25 @@ function vCarica() {
   <details style="margin-top:22px"><summary>Opzioni</summary>
     <div class="stack" style="margin-top:8px">
       <button class="btn" id="b-esempio">Carica una scheda di esempio</button>
+      <button class="btn" id="b-esempio-apnea">Carica un esempio di apnea</button>
       <button class="btn ghost" id="b-reset" style="color:var(--bad)">Cancella tutti i dati dell'app</button>
     </div>
   </details>`;
 }
 
-function vStorico() {
+function vStorico(sez = 'fisico') {
   const righe = S.storico.slice().reverse().map((h, k) => {
     const i = S.storico.length - 1 - k;
     const e = h.esito;
+    if (sezEsito(e) !== sez) return '';
     const fatti = e.esercizi.filter((x) => x.stato === 'fatto').length;
     return `<a class="card hist" href="#/esito/${i}" style="display:flex">
       <div><b>${esc(e.titolo)}</b><div class="small muted">${esc(dataIt(e.inizio))} · ${e.durata_min} min · ${fatti}/${e.esercizi.length} esercizi</div></div>
       <span class="pill ${h.inviato ? 'ok' : 'warn'}">${h.inviato ? 'Inviato' : 'Da inviare'}</span></a>`;
   }).join('');
   return `
-  <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/fisico">‹ Fisico</a></span></div>
-  <div class="eyebrow">Allenamento fisico</div>
+  <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro(sez)}</span></div>
+  <div class="eyebrow">${sez === 'fisico' ? 'Allenamento fisico' : SEZIONI[sez]}</div>
   <h1>Storico</h1>
   ${righe || '<div class="card empty"><p class="muted">Ancora nessuna seduta confermata.</p></div>'}`;
 }
@@ -737,30 +1052,58 @@ function vPresto(cls, titolo, testo) {
 /* ---------- collegamento eventi ---------- */
 function collega(pag, parti) {
   const on = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
-  on('b-inizia', iniziaSeduta);
+  on('b-inizia', (ev) => iniziaSeduta(ev.currentTarget.dataset.sez || 'fisico'));
+  if (pag === 'sicurezza') {
+    const btn = $('#b-sicuro');
+    document.querySelectorAll('.check').forEach((c) => c.addEventListener('click', () => {
+      c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+      btn.disabled = !Array.from(document.querySelectorAll('.check')).every((x) => x.getAttribute('aria-pressed') === 'true');
+    }));
+    on('b-sicuro', () => {
+      const voci = Array.from(document.querySelectorAll('.check')).map((x) => x.textContent.trim());
+      iniziaSeduta('apnea', { confermata: true, ora: new Date().toISOString(), voci });
+    });
+  }
 
   if (pag === 'es') {
     const s = sedutaAttiva(); if (!s) return;
     const i = parseInt(parti[1], 10) || 0; const ex = s.esercizi[i]; if (!ex) return;
     const log = logEs(ex.id);
-    if (ex.tipo === 'intervalli') {
+    if (ex.tipo === 'intervalli' || ex.tipo === 'apnee') {
       on('phasebox', () => {
         audio();
         if (log.stato === 'fatto' && !intAttivo(ex.id)) { location.hash = prossimoDa(i); return; }
         if (!intAttivo(ex.id) || T.inPausa) { intAvvia(ex); render(); return; }
-        if (!T.fasi[T.idx].durata_s) { intAvanti(ex, false); return; }
+        const fase = T.fasi[T.idx];
+        if (ex.tipo === 'apnee') {
+          if (fase.fase === 'apnea' || !fase.durata_s) { intAvanti(ex, false); return; }
+          toast('Recupero: l’apnea parte da sola (Salta fase › per anticipare)'); return;
+        }
+        if (!fase.durata_s) { intAvanti(ex, false); return; }
         intPausa(); render();
       });
+      on('b-voce', () => { S.voce = !S.voce; salva(); if (S.voce) parla('Voce attiva'); else { try { speechSynthesis.cancel(); } catch (e) {} } render(); });
+      document.querySelectorAll('.apnlog input').forEach((inp) => inp.addEventListener('change', () => {
+        const a = log.apnee[+inp.dataset.j]; if (!a) return;
+        const f = inp.dataset.f; const v = inp.value.trim();
+        if (f === 'tempo_s') { a.tempo_s = parseTempo(v); inp.value = a.tempo_s === '' ? '' : fmt(a.tempo_s); }
+        else if (f === 'sforzo') { const n = parseInt(v, 10); a.sforzo = Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : ''; inp.value = a.sforzo; }
+        else a[f] = v === '' ? '' : (isNaN(Number(v)) ? v : Number(v));
+        salva();
+      }));
       on('b-int-next', () => { if (!intAttivo(ex.id)) intAvvia(ex); intAvanti(ex, false); });
       on('b-int-prev', intIndietro);
       on('b-termina', (ev) => {
         const b = ev.currentTarget;
         if (!b.dataset.armato) { b.dataset.armato = '1'; b.textContent = 'Tocca di nuovo per terminare'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armato; b.textContent = 'Termina allenamento'; } }, 4000); return; }
-        if (intAttivo(ex.id)) { log.tempo_s = Math.round((Date.now() - T.inizioTot) / 1000); }
+        if (intAttivo(ex.id)) {
+          log.tempo_s = Math.round((Date.now() - T.inizioTot) / 1000);
+          const fa = T.fasi[T.idx]; if (fa.fase === 'apnea') registraApnea(log, T.idx, fa, intElapsed(), false);
+        }
         if (log.stato !== 'fatto') log.stato = (log.fasi_completate || 0) > 0 || intAttivo(ex.id) ? 'in_corso' : 'da_fare';
-        fermaTimer(); salva(); location.hash = '#/fine';
+        fermaTimer(); sottofondoPausa(); try { speechSynthesis.cancel(); } catch (e) {} salva(); location.hash = '#/fine';
       });
-      on('b-int-reset', () => { log.fasi_completate = 0; log.tempo_s = 0; log.stato = 'in_corso'; fermaTimer(); salva(); render(); });
+      on('b-int-reset', () => { log.fasi_completate = 0; log.tempo_s = 0; log.apnee = []; log.stato = 'in_corso'; fermaTimer(); salva(); render(); });
     } else {
       on('bigtimer', () => {
         if (log.serie.length >= serieTotali(ex) && !(T.tipo && T.exId === ex.id)) { location.hash = prossimoDa(i); return; }
@@ -787,12 +1130,13 @@ function collega(pag, parti) {
     const n = $('#q-note'); if (n) n.addEventListener('input', () => { S.corrente.noteFinali = n.value; salva(); });
     on('b-conferma', () => {
       const s = sedutaAttiva();
-      const domande = Array.isArray(s.domande) && s.domande.length ? s.domande : DOMANDE_DEFAULT;
+      const domande = domandeDi(s);
       const manca = domande.find((d) => !d.facoltativa && d.tipo !== 'testo' && (S.corrente.risposte[d.id] == null || S.corrente.risposte[d.id] === ''));
       if (manca) { toast('Rispondi a: ' + manca.testo); return; }
       const esito = costruisciEsito();
       S.storico.push({ esito, inviato: false });
-      S.coda.shift(); S.corrente = null; S.noteCoach = '';
+      S.coda = S.coda.filter((x) => x.id !== s.id); S.corrente = null; sottofondoChiudi(); try { speechSynthesis.cancel(); } catch (e) {}
+      if (sezDi(s) === 'fisico') S.noteCoach = '';
       fermaTimer(); schermoAcceso(false); salva();
       location.hash = '#/esito/' + (S.storico.length - 1);
       sincronizza(true);
@@ -802,7 +1146,7 @@ function collega(pag, parti) {
   on('b-sync', () => { toast('Controllo…'); sincronizza(true); });
   on('b-sync2', () => { toast('Controllo…'); sincronizza(true); });
   on('b-reinvia', () => sincronizza(true));
-  if (pag === 'fisico' || pag === '') sincronizza();
+  if (['', 'fisico', 'apnea', 'mentale'].includes(pag)) sincronizza();
 
   if (pag === 'collega') {
     on('b-g-salva', async () => {
@@ -853,10 +1197,14 @@ function collega(pag, parti) {
       try { const r = await fetch('esempi/scheda-esempio.json', { cache: 'no-store' }); ta.value = await r.text(); toast('Esempio pronto: tocca Carica'); }
       catch (e) { toast('Esempio non disponibile offline'); }
     });
+    on('b-esempio-apnea', async () => {
+      try { const r = await fetch('esempi/scheda-apnea-esempio.json', { cache: 'no-store' }); ta.value = await r.text(); toast('Esempio pronto: tocca Carica'); }
+      catch (e) { toast('Esempio non disponibile offline'); }
+    });
     on('b-reset', (ev) => {
       const b = ev.currentTarget;
       if (!b.dataset.armato) { b.dataset.armato = '1'; b.textContent = 'Tocca di nuovo per cancellare tutto'; return; }
-      S = { coda: [], storico: [], corrente: null, noteCoach: '' }; fermaTimer(); salva(); toast('Dati cancellati'); location.hash = '#/fisico';
+      S = { coda: [], storico: [], corrente: null, noteCoach: '', voce: true }; fermaTimer(); salva(); toast('Dati cancellati'); location.hash = '#/fisico';
     });
   }
 }
@@ -872,7 +1220,7 @@ function caricaTesto(testo, bottone) {
     }
     S.coda = sedute; S.corrente = null; S.noteCoach = note; fermaTimer(); salva();
     toast(sedute.length === 1 ? 'Seduta caricata' : `${sedute.length} sedute caricate`);
-    location.hash = '#/fisico';
+    location.hash = '#/' + sezDi(sedute[0]);
   } catch (e) {
     const msg = 'Non riesco a leggere la scheda. ' + (e.message || e);
     if (err) { err.textContent = msg; err.hidden = false; } else toast(msg);
@@ -883,6 +1231,7 @@ function caricaTesto(testo, bottone) {
 // Struttura del repository privato apnea-training-database (branch main):
 //   fisico/coda.json            scritto dal coach: scheda mr9-scheda-v1 con le prossime sedute
 //   fisico/esiti/<data>_<id>.json  scritto dall'app: un esito mr9-esito-v1 per seduta confermata
+// Nella stessa coda: palestra, corsa e nuoto (Papa Swolio, Kilian), apnea (Dave, "tipo": "apnea"), mentale (Gus, "tipo": "mentale").
 const DATI = { coda: 'fisico/coda.json', esiti: 'fisico/esiti' };
 const collegato = () => !!(S.github && S.github.token && S.github.owner && S.github.repo);
 function nomeEsito(e) { return `${(e.inizio || new Date().toISOString()).slice(0, 10)}_${e.seduta_id}.json`; }
@@ -942,15 +1291,18 @@ function sincronizza(forza) {
       const testo = await leggiRemoto(DATI.coda);
       if (testo) {
         const { sedute, note } = validaScheda(JSON.parse(testo));
+        const prima = {}; Object.keys(SEZIONI).forEach((k) => { prima[k] = (sedutaCorrente(k) || {}).id; });
         let nuove = sedute.filter((x) => !fatti.has(x.id));
         if (S.corrente) { // la seduta in corso non si tocca
           const att = S.coda.find((x) => x.id === S.corrente.sedutaId);
           nuove = nuove.filter((x) => x.id !== S.corrente.sedutaId);
           if (att) nuove.unshift(att);
         }
-        const prima = (S.coda[0] || {}).id;
         S.coda = nuove; S.noteCoach = note;
-        if (!S.corrente && S.coda[0] && S.coda[0].id !== prima) toast('Nuova seduta dal coach');
+        if (!S.corrente) {
+          const nuova = Object.keys(SEZIONI).find((k) => sedutaCorrente(k) && sedutaCorrente(k).id !== prima[k]);
+          if (nuova) toast({ apnea: 'Nuova seduta di apnea da Dave', mentale: 'Nuova seduta mentale da Gus' }[nuova] || 'Nuova seduta dal coach');
+        }
       }
       S.sync = { ultimo: new Date().toISOString(), errore: '' };
     } catch (e) {
@@ -958,7 +1310,7 @@ function sincronizza(forza) {
     } finally {
       ultimoSync = Date.now(); syncInCorso = null; salva();
       const pag = (location.hash || '#/').slice(2).split('/')[0];
-      if (['', 'fisico', 'esito', 'storico', 'collega'].includes(pag)) render();
+      if (['', 'fisico', 'apnea', 'mentale', 'esito', 'storico', 'collega'].includes(pag)) render();
       else if (pag === 'regista') aggiornaListaMessaggi();
     }
   })();

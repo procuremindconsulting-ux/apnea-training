@@ -1,0 +1,66 @@
+{
+  "formato": "mr9-scheda-v1",
+  "note_coach": "Scheda di ESEMPIO per provare la sezione Apnea: non è un programma reale.",
+  "sedute": [
+    {
+      "id": "esempio-apnea-tabella-co2",
+      "titolo": "Statica – tabella CO₂ 8 × 2'30\"",
+      "tipo": "apnea",
+      "disciplina": "statica",
+      "data": "2026-11-19",
+      "durata_stimata_min": 45,
+      "sforzo_max": 6,
+      "note": "Recuperi che si accorciano. Ultima apnea a sforzo 6 al massimo. Se esci prima, va bene: lo segni.",
+      "esercizi": [
+        {
+          "id": "riscaldamento",
+          "nome": "Riscaldamento: 2 apnee libere",
+          "tipo": "apnee",
+          "fasi": [
+            { "fase": "respiro", "nome": "Respirazione di preparazione", "durata_s": 180 },
+            { "fase": "apnea", "nome": "Apnea facile", "sforzo": 4 },
+            { "fase": "respiro", "nome": "Recupero", "durata_s": 150 },
+            { "fase": "apnea", "nome": "Apnea facile", "sforzo": 4 }
+          ]
+        },
+        {
+          "id": "tabella-co2",
+          "nome": "Tabella CO₂",
+          "tipo": "apnee",
+          "fasi": [
+            { "fase": "respiro", "nome": "Recupero", "durata_s": 120 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 60 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 55 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 50 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 45 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 40 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 35 },
+            { "fase": "apnea", "durata_s": 150 }, { "fase": "respiro", "durata_s": 30 },
+            { "fase": "apnea", "durata_s": 150 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "esempio-apnea-dinamica",
+      "titolo": "Dinamica – 6 × 50 m",
+      "tipo": "apnea",
+      "disciplina": "dinamica",
+      "data": "2026-11-24",
+      "note": "Partenza ogni 2'. Sforzo 5.",
+      "esercizi": [
+        {
+          "id": "dinamica-50",
+          "nome": "6 × 50 m",
+          "tipo": "apnee",
+          "fasi": [
+            { "ripeti": 6, "fasi": [
+              { "fase": "respiro", "nome": "Recupero", "durata_s": 75 },
+              { "fase": "apnea", "nome": "Dinamica 50 m", "metri": 50, "sforzo": 5 }
+            ] }
+          ]
+        }
+      ]
+    }
+  ]
+}
