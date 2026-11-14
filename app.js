@@ -4,6 +4,7 @@
 
 const APP_VERSIONE = '0.1.0';
 const KEY = 'mr9.stato.v1';
+const KEY_GITHUB = 'mr9.collegamento.v1'; // copia separata del collegamento: sopravvive a reset e stati rovinati
 const FORMATO_SCHEDA = 'mr9-scheda-v1';
 const FORMATO_ESITO = 'mr9-esito-v1';
 
@@ -56,7 +57,12 @@ function carica() {
 }
 function salva() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Impossibile salvare sul dispositivo'); }
+  try { if (S.github && S.github.token) localStorage.setItem(KEY_GITHUB, JSON.stringify(S.github)); } catch (e) {}
 }
+// Se lo stato non ha il collegamento ma la copia sì, lo riprende.
+try { if (!(S.github && S.github.token)) { const g = JSON.parse(localStorage.getItem(KEY_GITHUB) || 'null'); if (g && g.token) S.github = g; } } catch (e) {}
+// Chiede al browser di non cancellare da solo i dati dell'app quando lo spazio scarseggia.
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
 /* ---------- utilità ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1021,7 +1027,7 @@ function vCarica() {
     <div class="stack" style="margin-top:8px">
       <button class="btn" id="b-esempio">Carica una scheda di esempio</button>
       <button class="btn" id="b-esempio-apnea">Carica un esempio di apnea</button>
-      <button class="btn ghost" id="b-reset" style="color:var(--bad)">Cancella tutti i dati dell'app</button>
+      <button class="btn ghost" id="b-reset" style="color:var(--bad)">Cancella sedute e storico (il collegamento resta)</button>
     </div>
   </details>`;
 }
@@ -1167,7 +1173,7 @@ function collega(pag, parti) {
         toast('Collegato al coach'); location.hash = '#/fisico';
       } catch (e) { S.github = vecchio; salva(); mostra(String(e.message || e), false); }
     });
-    on('b-g-scollega', () => { S.github = null; S.sync = null; salva(); toast('Scollegato'); location.hash = '#/fisico'; });
+    on('b-g-scollega', () => { S.github = null; S.sync = null; try { localStorage.removeItem(KEY_GITHUB); } catch (e) {} salva(); toast('Scollegato'); location.hash = '#/fisico'; });
   }
 
   if (pag === 'regista') collegaRegista(parti[1] ? decodeURIComponent(parti[1]) : '');
@@ -1204,7 +1210,7 @@ function collega(pag, parti) {
     on('b-reset', (ev) => {
       const b = ev.currentTarget;
       if (!b.dataset.armato) { b.dataset.armato = '1'; b.textContent = 'Tocca di nuovo per cancellare tutto'; return; }
-      S = { coda: [], storico: [], corrente: null, noteCoach: '', voce: true }; fermaTimer(); salva(); toast('Dati cancellati'); location.hash = '#/fisico';
+      S = { coda: [], storico: [], corrente: null, noteCoach: '', voce: true, github: S.github || null }; fermaTimer(); salva(); toast('Dati cancellati'); location.hash = '#/fisico';
     });
   }
 }
@@ -1436,10 +1442,11 @@ function vCollega() {
     <input class="input" id="g-owner" value="${esc(g.owner || 'procuremindconsulting-ux')}" autocapitalize="off" autocorrect="off">
     <label class="small muted" for="g-repo" style="font-weight:800">Repository dati (privato)</label>
     <input class="input" id="g-repo" value="${esc(g.repo || 'apnea-training-database')}" autocapitalize="off" autocorrect="off">
-    <label class="small muted" for="g-token" style="font-weight:800">Token GitHub</label>
-    <label class="small muted" for="g-branch" style="font-weight:800">Branch</label>
-    <input class="input" id="g-branch" value="${esc(g.branch || 'main')}" autocapitalize="off" autocorrect="off">
+    <label class="small muted" for="g-token" style="font-weight:800">Token GitHub (la chiave che apre il database)</label>
     <input class="input" id="g-token" type="password" value="${esc(g.token || '')}" placeholder="github_pat_…" autocapitalize="off" autocorrect="off">
+    <p class="small muted" style="margin:0">Lo crei una volta su github.com: vedi “Come si crea il token” qui sotto.</p>
+    <label class="small muted" for="g-branch" style="font-weight:800">Branch (lascia main)</label>
+    <input class="input" id="g-branch" value="${esc(g.branch || 'main')}" autocapitalize="off" autocorrect="off">
   </div>
   <div class="note" id="g-esito" hidden></div>
   <button class="btn primary" id="b-g-salva">Salva e prova</button>
