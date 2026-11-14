@@ -13,7 +13,7 @@
   'use strict';
 
   var BASE = '#/alimentazione';
-  var K = { spesa: 'mr9.ali.spesa', dispensa: 'mr9.ali.dispensa', diario: 'mr9.ali.diario', tipi: 'mr9.ali.tipoGiorno', menu: 'mr9.ali.menu', piano: 'mr9.ali.pianoCache', menuVisto: 'mr9.ali.menuVisto' };
+  var K = { spesa: 'mr9.ali.spesa', dispensa: 'mr9.ali.dispensa', diario: 'mr9.ali.diario', tipi: 'mr9.ali.tipoGiorno', menu: 'mr9.ali.menu', piano: 'mr9.ali.pianoCache', menuVisto: 'mr9.ali.menuVisto', negozi: 'mr9.ali.negozi', negozio: 'mr9.ali.negozio', occPrese: 'mr9.ali.occPrese' };
   var PERCORSO_PIANO = 'alimentazione/piano.json';
   var GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
   var MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
@@ -97,6 +97,23 @@
       ridisegna();
       toast('Nuovo menu dello chef' + (m.spesa && m.spesa.length ? ', ' + m.spesa.length + ' prodotti in spesa' : ''), false);
     }).catch(function () { menuChiesto = false; });
+  }
+  // Lista per negozio dell'agente spesa (alimentazione/spesa.json, mr9-spesa-v1).
+  var negoziChiesti = false;
+  function caricaSpesaNegozi() {
+    var D = window.Mr9Dati;
+    if (negoziChiesti || !D || !D.leggi) return;
+    negoziChiesti = true;
+    Promise.resolve(D.leggi('alimentazione/spesa.json')).then(function (testo) {
+      if (!testo) return;
+      var l = JSON.parse(testo);
+      if (!l || l.formato !== 'mr9-spesa-v1' || !Array.isArray(l.negozi)) return;
+      var prima = leggi(K.negozi, null);
+      if (prima && prima.aggiornato === l.aggiornato) return;
+      scrivi(K.negozi, l);
+      ridisegna();
+      if (prima) toast('Lista per negozio aggiornata', false);
+    }).catch(function () { negoziChiesti = false; });
   }
   function istantanea() { var s = {}; Object.keys(K).forEach(function (n) { s[K[n]] = leggi(K[n], null); }); return s; }
   function ripristina(s) { Object.keys(s).forEach(function (k) { if (s[k] === null) { try { localStorage.removeItem(k); } catch (e) {} } else scrivi(k, s[k]); }); }
@@ -725,8 +742,92 @@
     return h;
   }
 
+  function voceLocale(s, nome) { for (var i = 0; i < s.length; i++) if (stessa(s[i].nome, nome)) return s[i]; return null; }
+  function vistaNegozi(s) {
+    var l = leggi(K.negozi, null);
+    if (!l || !l.negozi || !l.negozi.length) return null;
+    var oggi = oggiKey();
+    if (l.giorni && l.giorni.length && l.giorni[l.giorni.length - 1] < oggi) return null; // lista scaduta
+    var nomi = l.negozi.map(function (n) { return n.negozio; });
+    var sel = leggi(K.negozio, '');
+    if (sel !== 'tutti' && nomi.indexOf(sel) < 0) sel = nomi[0];
+    var coperti = [], h = '';
+    h += '<div class="ali-neg-sel"><span>Sono da</span>' + nomi.concat(nomi.length > 1 ? ['tutti'] : []).map(function (n) {
+      return '<button class="ali-chip' + (n === sel ? ' ali-chip-on' : '') + '" data-act="negozio" data-n="' + esc(n) + '">' + esc(n === 'tutti' ? 'Tutti' : n) + '</button>';
+    }).join('') + '</div>';
+    if (l.note) h += '<p class="ali-pic ali-neg-nota">🛒 ' + esc(l.note) + '</p>';
+    var oggiOcc = (l.occasioni || []).filter(function (o) { return !o.fino_a || o.fino_a >= oggi; });
+    l.negozi.forEach(function (n) {
+      (n.reparti || []).forEach(function (r) { (r.voci || []).forEach(function (v) { coperti.push(v.nome); }); });
+      if (sel !== 'tutti' && n.negozio !== sel) return;
+      if (sel === 'tutti') h += '<h3 class="ali-neg-t">' + esc(n.negozio) + '</h3>';
+      (n.reparti || []).forEach(function (r) {
+        if (!r.voci || !r.voci.length) return;
+        h += '<h4 class="ali-rep-t">' + esc(r.reparto) + '</h4><ul class="ali-lista">' + r.voci.map(function (v) {
+          var loc = voceLocale(s, v.nome), preso = loc && loc.preso;
+          var sotto = [];
+          if (v.serve && v.serve.q != null) sotto.push('serve ' + fmtQ(v.serve.q, v.serve.u, v.nome));
+          if (v.avanza && v.avanza.q) sotto.push('avanza ' + fmtQ(v.avanza.q, v.avanza.u, v.nome));
+          if (v.alternativa && v.alternativa.negozio) sotto.push('se manca: ' + v.alternativa.negozio);
+          if (v.verificato === false) sotto.push('prodotto da verificare');
+          return '<li class="' + (preso ? 'ali-preso' : '') + '"><button data-act="spunta-n" data-n="' + esc(v.nome) + '" aria-label="Preso">' + (preso ? '✓' : '') + '</button>' +
+            '<span class="ali-l-n">' + esc(v.prodotto || v.nome) +
+            (v.offerta ? ' <i class="ali-off">offerta' + (v.offerta.prezzo ? ' ' + esc(v.offerta.prezzo) : '') + '</i>' : '') +
+            (sotto.length ? '<small class="ali-l-sub">' + esc(sotto.join(' · ')) + '</small>' : '') + '</span>' +
+            '<span class="ali-l-q">' + (v.confezioni ? '×' + esc(v.confezioni) : esc(v.serve ? fmtQ(v.serve.q, v.serve.u, v.nome) : '')) + '</span></li>';
+        }).join('') + '</ul>';
+      });
+    });
+    if (sel !== 'tutti') {
+      var altri = l.negozi.filter(function (n) { return n.negozio !== sel; }).map(function (n) {
+        var c = 0; (n.reparti || []).forEach(function (r) { c += (r.voci || []).length; }); return c ? n.negozio + ' (' + c + ')' : '';
+      }).filter(Boolean);
+      if (altri.length) h += '<p class="ali-pic">Altri negozi: ' + esc(altri.join(', ')) + '</p>';
+    }
+    if (oggiOcc.length) {
+      var prese = leggi(K.occPrese, []);
+      h += '<div class="ali-occ"><div class="ali-occ-t">💡 Occasioni da stoccare</div>' + oggiOcc.map(function (o) {
+        var id = (o.negozio || '') + '|' + o.prodotto + '|' + (o.fino_a || ''), gia = prese.indexOf(id) >= 0;
+        return '<div class="ali-occ-r"><div><b>' + esc(o.prodotto) + '</b> · ' + esc(o.negozio || '') + (o.prezzo ? ' · ' + esc(o.prezzo) : '') +
+          (o.fino_a ? ' · fino al ' + esc(o.fino_a.slice(8, 10) + '/' + o.fino_a.slice(5, 7)) : '') +
+          (o.perche ? '<small class="ali-l-sub">' + esc(o.perche) + '</small>' : '') + '</div>' +
+          (gia ? '<span class="ali-occ-ok">In lista ✓</span>' : '<button class="ali-btn ali-btn-sec ali-occ-b" data-act="occasione" data-n="' + esc(id) + '">Prendo</button>') + '</div>';
+      }).join('') + '</div>';
+    }
+    var resto = [];
+    s.forEach(function (x, i) { if (!coperti.some(function (c) { return stessa(c, x.nome); })) resto.push(i); });
+    return { html: h, resto: resto, data: l };
+  }
+
+  function testoNegozi() {
+    var l = leggi(K.negozi, { negozi: [] }), s = leggi(K.spesa, []), out = [];
+    l.negozi.forEach(function (n) {
+      var righe = [];
+      (n.reparti || []).forEach(function (r) { (r.voci || []).forEach(function (v) {
+        var loc = voceLocale(s, v.nome); if (loc && loc.preso) return;
+        righe.push('• ' + (v.confezioni ? v.confezioni + '× ' : '') + (v.prodotto || v.nome) + (v.offerta ? ' (offerta)' : ''));
+      }); });
+      if (righe.length) out.push((out.length ? '\n' : '') + n.negozio.toUpperCase(), righe.join('\n'));
+    });
+    return out.join('\n');
+  }
   function vistaSpesa() {
-    var s = leggi(K.spesa, []);
+    var s = leggi(K.spesa, []), vn = vistaNegozi(s);
+    if (vn) {
+      var h0 = '<div class="ali-sez-t"><h2>Lista della spesa</h2></div>' + vn.html;
+      if (vn.resto.length) {
+        h0 += '<h4 class="ali-rep-t">Altro</h4><ul class="ali-lista">' + vn.resto.map(function (i) {
+          var x = s[i];
+          return '<li class="' + (x.preso ? 'ali-preso' : '') + '"><button data-act="spunta" data-i="' + i + '" aria-label="Preso">' + (x.preso ? '✓' : '') + '</button>' +
+            '<span class="ali-l-n">' + esc(x.nome) + '</span><span class="ali-l-q">' + esc(fmtQ(x.q, x.u, x.nome)) + '</span>' +
+            (x.origine && x.origine !== 'chef' ? '<i class="ali-orig">' + esc(x.origine) + '</i>' : '') + '</li>';
+        }).join('') + '</ul>';
+      }
+      h0 += '<div class="ali-due">' + (s.some(function (x) { return x.preso; }) ? '<button class="ali-btn ali-btn-ok" data-act="in-dispensa">Presi → dispensa</button>' : '') + '</div>' +
+        '<button class="ali-link" data-act="condividi-spesa">Condividi la lista</button>' +
+        '<p class="ali-pic">Lista per negozio preparata dall\'agente spesa: Lidl prima, Eurospin per quello che manca.</p>';
+      return h0;
+    }
     var h = '<div class="ali-sez-t"><h2>Lista della spesa</h2></div>';
     if (!s.length) {
       h += '<p class="ali-vuoto">Lista vuota. Di\' «aggiungi latte e caffè», oppure genera la spesa dal piano dei prossimi 7 giorni.</p>';
@@ -833,6 +934,22 @@
       case 'chef-incolla': apriIncolla(); break;
       case 'come-piano': esegui({ tipo: 'pasto', pasto: b.getAttribute('data-id'), comeDaPiano: true, testo: '' }); break;
       case 'spunta': { var s = leggi(K.spesa, []), i = +b.getAttribute('data-i'); if (s[i]) s[i].preso = !s[i].preso; scrivi(K.spesa, s); ridisegna(); break; }
+      case 'spunta-n': {
+        var sn = leggi(K.spesa, []), nm = b.getAttribute('data-n'), ln = voceLocale(sn, nm);
+        var vv = null; (leggi(K.negozi, { negozi: [] }).negozi || []).forEach(function (n) { (n.reparti || []).forEach(function (r) { (r.voci || []).forEach(function (v) { if (v.nome === nm) vv = v; }); }); });
+        // in dispensa va quello che si compra davvero: quanto serve + quanto avanza dalla confezione
+        var qq = vv && vv.serve ? vv.serve.q : null, uu = vv && vv.serve ? vv.serve.u : null;
+        if (qq != null && vv.avanza && vv.avanza.q && vv.avanza.u === uu) qq += vv.avanza.q;
+        if (ln) { ln.preso = !ln.preso; if (ln.preso && qq != null) { ln.q = qq; ln.u = uu; } }
+        else sn.push({ nome: chiave(nm), q: qq, u: uu, origine: 'chef', preso: true });
+        scrivi(K.spesa, sn); ridisegna(); break;
+      }
+      case 'negozio': scrivi(K.negozio, b.getAttribute('data-n')); ridisegna(); break;
+      case 'occasione': {
+        var oid = b.getAttribute('data-n'), pr = leggi(K.occPrese, []), so = leggi(K.spesa, []);
+        aggiungiA(so, { nome: oid.split('|')[1], q: null, u: null }, { origine: 'offerta', preso: false });
+        pr.push(oid); scrivi(K.occPrese, pr.slice(-30)); scrivi(K.spesa, so); ridisegna(); toast('Aggiunta alla lista', false); break;
+      }
       case 'in-dispensa': {
         var snap = istantanea(), s2 = leggi(K.spesa, []), d = leggi(K.dispensa, []);
         s2.filter(function (x) { return x.preso; }).forEach(function (x) { aggiungiA(d, x); });
@@ -840,7 +957,7 @@
         stato.annulla = snap; ridisegna(); toast('Presi spostati in dispensa', true); break;
       }
       case 'genera': esegui({ tipo: 'genera-spesa' }); break;
-      case 'condividi-spesa': condividi(leggi(K.spesa, []).filter(function (x) { return !x.preso; }).map(function (x) { return '• ' + x.nome + (x.q != null ? ' ' + fmtQ(x.q, x.u, x.nome) : ''); }).join('\n'), 'Lista della spesa'); break;
+      case 'condividi-spesa': if (vistaNegozi(leggi(K.spesa, []))) { condividi(testoNegozi(), 'Lista della spesa'); break; } condividi(leggi(K.spesa, []).filter(function (x) { return !x.preso; }).map(function (x) { return '• ' + x.nome + (x.q != null ? ' ' + fmtQ(x.q, x.u, x.nome) : ''); }).join('\n'), 'Lista della spesa'); break;
       case 'condividi-diario': condividi(testoDiario(), 'Diario pasti'); break;
       case 'annulla': if (stato.annulla) { ripristina(stato.annulla); stato.annulla = null; ridisegna(); toast('Annullato', false); } break;
     }
@@ -856,6 +973,7 @@
       ridisegna();
       caricaPiano();
       caricaMenuChef();
+      caricaSpesaNegozi();
       caricaDispensaRemota();
     },
     unmount: function () {
@@ -867,6 +985,7 @@
     _interpreta: interpreta,
     _testoDiario: testoDiario,
     _importaChef: importaChef,
-    _promptMenu: function () { return promptMenu(3); }
+    _promptMenu: function () { return promptMenu(3); },
+    _vistaSpesa: function () { return vistaSpesa(); }
   };
 })();

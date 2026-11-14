@@ -130,3 +130,19 @@
 .ali-chef p { color: var(--a-muted); font-size: 14px; margin: 6px 0 12px; line-height: 1.4; }
 .ali-ricetta { margin-top: 16px; background: var(--a-card); border: 1px solid var(--a-line); border-radius: var(--a-r); padding: 14px 16px; }
 .ali-ricetta p { margin: 8px 0 0; line-height: 1.5; font-size: 15px; }
+
+/* lista per negozio (agente spesa) */
+.ali-neg-sel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.ali-neg-sel span { font-size: 13px; color: var(--a-muted); font-weight: 700; }
+.ali-chip { border: 1px solid var(--a-line); background: var(--a-card); color: inherit; border-radius: 999px; padding: 6px 12px; font-weight: 800; font-size: 14px; cursor: pointer; }
+.ali-chip-on { background: var(--a-c1); border-color: var(--a-c1); color: #0d0f14; }
+.ali-neg-t { margin: 18px 0 4px; font-size: 17px; }
+.ali-rep-t { margin: 14px 0 6px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--a-muted); }
+.ali-l-sub { display: block; font-size: 12.5px; font-weight: 500; color: var(--a-muted); margin-top: 2px; }
+.ali-off { font-style: normal; font-size: 10.5px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: #0d0f14; background: #ffd23f; border-radius: 6px; padding: 1px 6px; vertical-align: middle; }
+.ali-occ { margin: 16px 0 6px; background: var(--a-card); border: 1px solid #ffd23f; border-radius: var(--a-r); padding: 12px 14px; }
+.ali-occ-t { font-weight: 800; margin-bottom: 6px; }
+.ali-occ-r { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--a-line); font-size: 14.5px; }
+.ali-occ-r:first-of-type { border-top: 0; }
+.ali-occ-b { width: auto; flex: none; padding: 8px 14px; margin: 0; }
+.ali-occ-ok { flex: none; font-weight: 800; color: var(--a-c1); font-size: 13px; }
