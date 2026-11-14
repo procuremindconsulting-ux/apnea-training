@@ -24,14 +24,14 @@ L'app mostra sempre e solo la prima seduta non ancora confermata. Le altre resta
 |---|---|---|
 | `id` | sì | identificativo unico, es. `"2026-11-16-forza"` |
 | `titolo` | sì | es. `"Forza – Lunedì completa"` |
-| `tipo` | no | `palestra`, `corsa`, `nuoto`, `bici`, `misto` |
+| `tipo` | no | `palestra`, `corsa`, `nuoto`, `bici`, `misto` (pagina Fisico), `apnea` (pagina Apnea, vedi *Sedute di apnea*), `mentale` (pagina Mentale, vedi *Sedute mentali*) |
 | `data` | no | data prevista `AAAA-MM-GG` |
 | `durata_stimata_min` | no | minuti |
 | `note` | no | indicazioni generali, mostrate prima di iniziare |
 | `esercizi` | sì | elenco di esercizi (vedi sotto) |
 | `domande` | no | domande di fine seduta; se assenti l'app usa 3 domande standard |
 
-### Esercizio: tre tipi
+### Esercizio: quattro tipi (il quarto, `apnee`, è descritto in *Sedute di apnea*)
 
 Campi comuni: `id` (consigliato, serve anche per l'immagine), `nome`, `tipo`, `note`, `condizione` (avviso mostrato in giallo, es. "Solo se il dolore è al massimo 2/10"), `immagine` (URL; se manca l'app cerca `img/esercizi/<id>.webp`).
 
@@ -111,6 +111,64 @@ Le domande `scala`, `numero` e `scelta` sono obbligatorie, salvo `"facoltativa":
 ```
 
 `stato` di un esercizio: `fatto`, `parziale`, `saltato`, `non_fatto`.
+
+## Una coda, tre pagine
+
+Tutte le sedute stanno in `fisico/coda.json` e tutti gli esiti in `fisico/esiti/`. L'app le divide per `tipo`: `apnea` nella pagina **Apnea** (le scrive Dave), `mentale` nella pagina **Mentale** (le scrive Gus), tutte le altre in **Fisico** (Papa Swolio e Kilian). Ogni pagina mostra solo la propria prossima seduta; una sola seduta per volta può essere in corso. Ogni agente cambia solo le sedute del proprio tipo. L'esito porta `"sezione"`: `fisico`, `apnea` o `mentale`.
+
+## Sedute di apnea (Dave)
+
+Seduta con `"tipo": "apnea"` e, facoltativi: `"disciplina"` (`statica`, `dinamica`, `secco`), `"sforzo_max"` (tetto di sforzo 0-10 mostrato prima di iniziare), `"compagno"` (nome mostrato nel controllo di sicurezza), `"sicurezza"` (elenco di frasi da spuntare; se manca l'app usa le sue tre). Gli esercizi in acqua sono di tipo **`apnee`**; si possono usare anche gli altri tipi (es. `intervalli` per lo stretching).
+
+**Prima di iniziare** l'app chiede di spuntare i controlli di sicurezza (compagno in acqua, nessun malessere, niente iperventilazione): il pulsante si accende solo quando sono tutti spuntati. Se l'ultimo esito di apnea dice "No" a *Tutto regolare?*, si aggiunge il controllo "hai sentito il medico".
+
+### Esercizio `apnee`
+
+Come `intervalli`, ma ogni fase è un **respiro** o un'**apnea** (`"fase": "respiro"` / `"fase": "apnea"`), con i blocchi `ripeti` se servono.
+
+```json
+{ "id": "c2", "nome": "Tabella C2", "tipo": "apnee",
+  "fasi": [
+    { "fase": "respiro", "nome": "Preparazione" },
+    { "fase": "apnea", "durata_s": 165 }, { "fase": "respiro", "durata_s": 60 },
+    { "fase": "apnea", "durata_s": 165 }, { "fase": "respiro", "durata_s": 55 },
+    { "fase": "apnea", "nome": "Lunga", "sforzo": 6, "annunci_s": 60 },
+    { "ripeti": 6, "fasi": [
+      { "fase": "respiro", "durata_s": 75 },
+      { "fase": "apnea", "nome": "Dinamica 50 m", "metri": 50, "sforzo": 5 } ] }
+  ] }
+```
+
+| Campo della fase | Significato |
+|---|---|
+| `fase` | `respiro` o `apnea` (azzurro chiaro / blu) |
+| `durata_s` | apnea a tempo fisso (tabelle CO₂/O₂) o recupero a tempo. **Senza** `durata_s` la fase è libera: il cronometro conta in avanti |
+| `sforzo` | sforzo previsto sulla scala 0-10 di Gabriele, detto a voce e mostrato |
+| `metri` | per la dinamica: distanza prevista, poi modificabile |
+| `annunci_s` | solo apnee libere: la voce dice il tempo trascorso ogni N secondi (es. 60). Se manca, silenzio |
+| `nome`, `note` | facoltativi |
+
+L'unico pulsante (il riquadro grande): primo tocco = parte la tabella; durante un'**apnea** tocco = "esco" (se era a tempo fisso viene segnata `uscita_anticipata`), a tempo scaduto passa da sola al respiro; durante un **respiro a tempo** l'apnea parte da sola (*Salta fase ›* per anticipare); durante un **respiro libero** tocco = parte l'apnea. Voce italiana disattivabile: "Apnea", "Respira", 30" e 10" alla fine delle fasi a tempo, bip negli ultimi 3 secondi. A fine tabella si segnano per ogni apnea tempo (già compilato), metri e **sforzo 0-10**.
+
+Domande di fine seduta predefinite (se la seduta non ne porta di sue): *Sforzo massimo raggiunto* (0-10), *Come ti sei sentito?* (1-5), *Tutto regolare? Niente samba, niente malesseri* (Sì/No), note.
+
+Nell'esito, oltre ai campi soliti: `disciplina`, `sicurezza` (controlli spuntati e ora) e per ogni esercizio `apnee`:
+
+```json
+{ "id": "c2", "tipo": "apnee", "stato": "fatto", "apnee_previste": 8, "fasi_totali": 16, "fasi_completate": 16, "tempo_s": 1740,
+  "apnee": [
+    { "n": 1, "nome": "Apnea", "prevista_s": 165, "tempo_s": 165, "sforzo": 4 },
+    { "n": 8, "nome": "Apnea", "prevista_s": 165, "tempo_s": 151, "sforzo": 7, "uscita_anticipata": true } ] }
+```
+
+## Sedute mentali (Gus)
+
+Seduta con `"tipo": "mentale"`, un `"sottofondo"` (`titolo`, `url` YouTube, `durata_s`) ed esercizi `intervalli` con il testo **`guida`** in ogni fase (esempio completo in `gus/ISTRUZIONI.md`).
+
+- Il sottofondo compare come piccolo player YouTube in basso a destra e parte con il primo tocco sul timer; si ferma in pausa e a fine seduta. Se il telefono blocca l'avvio automatico, basta toccare ▶ sul player.
+- La voce guida (sintesi vocale italiana del telefono) legge il testo `guida` all'inizio di ogni fase, frase per frase, abbassando la musica mentre parla. Il testo resta anche scritto sotto il timer. Pausa: si fermano timer, musica e voce. Interruttore *Voce guida* sopra il timer.
+- Pause nel parlato: "…" o punto. Frasi brevi.
+- Domande predefinite (se la seduta non ne porta di sue): *Quanto ti senti calmo* (1-10), *Quanto sei rimasto concentrato* (1-10), *Ti è piaciuto il sottofondo?* (Sì / Così così / No), note. Nell'esito c'è anche `sottofondo`.
 
 ## Dove stanno i file (repository privato `apnea-training-database`, branch `main`)
 

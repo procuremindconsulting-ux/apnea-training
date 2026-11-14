@@ -228,3 +228,41 @@ details summary { cursor: pointer; font-weight: 800; color: var(--muted); paddin
 .tb-left { display: inline-flex; align-items: center; gap: 10px; }
 .homebtn { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: var(--card2); border: 1px solid var(--line); color: var(--text); }
 .homebtn svg { width: 20px; height: 20px; fill: currentColor; }
+
+/* ---------- apnea (Dave) ---------- */
+:root { --i-respiro: #7fe3ff; --i-apnea: #1f4fd8; }
+.i-respiro { background: var(--i-respiro); }
+.i-apnea { background: var(--i-apnea); }
+.phasebox.i-apnea { color: #fff; background: radial-gradient(120% 120% at 50% 0%, #3d7bff, #0b2a7a 70%); }
+.phasebox.i-apnea .paz { background: rgba(255,255,255,.92); color: #0b2a7a; }
+.phasebox.i-respiro { background: linear-gradient(160deg, #b8f1ff, var(--apnea)); }
+/* nelle pagine di apnea l'accento arancio diventa blu acqua */
+body[data-sez="apnea"] { --fisico: #3d7bff; --fisico2: #22c3ee; }
+body[data-sez="apnea"] .hero { background: radial-gradient(120% 140% at 100% 0%, rgba(34,195,238,.35), transparent 55%), linear-gradient(160deg, #0f2440, #1b1f2a 60%); border-color: rgba(34,195,238,.4); }
+body[data-sez="apnea"] .hero .tag { background: rgba(34,195,238,.16); color: var(--apnea); }
+body[data-sez="apnea"] .btn.primary { color: #04121f; box-shadow: 0 8px 24px -8px rgba(61,123,255,.6); }
+body[data-sez="apnea"] .note { background: rgba(34,195,238,.08); }
+body[data-sez="apnea"] .scale button.sel { color: #04121f; }
+.note.safe { border-left-color: var(--ok); background: rgba(46,229,157,.08); }
+.checks { display: grid; gap: 10px; margin-bottom: 16px; }
+.check { display: flex; align-items: center; gap: 14px; text-align: left; padding: 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); font-weight: 750; font-size: 16px; }
+.check .box { flex: 0 0 28px; height: 28px; border-radius: 9px; border: 2px solid var(--muted); display: grid; place-items: center; }
+.check[aria-pressed="true"] { border-color: var(--ok); background: rgba(46,229,157,.08); }
+.check[aria-pressed="true"] .box { background: var(--ok); border-color: var(--ok); }
+.check[aria-pressed="true"] .box::after { content: "✓"; color: #06140d; font-weight: 900; }
+button.chip { cursor: pointer; color: var(--text); }
+.apnlog td:first-child { width: 30px; }
+.presc .chip { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---------- mentale (Gus) ---------- */
+body[data-sez="mentale"] { --fisico: #a46bff; --fisico2: #ff5fd2; }
+body[data-sez="mentale"] .hero { background: radial-gradient(120% 140% at 100% 0%, rgba(255,95,210,.28), transparent 55%), linear-gradient(160deg, #24173a, #1b1f2a 60%); border-color: rgba(164,107,255,.4); }
+body[data-sez="mentale"] .hero .tag { background: rgba(164,107,255,.18); color: #d9b8ff; }
+body[data-sez="mentale"] .note { background: rgba(164,107,255,.08); }
+body[data-sez="mentale"] .btn.primary { color: #16061f; box-shadow: 0 8px 24px -8px rgba(164,107,255,.6); }
+.guida { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--fisico2); border-radius: 14px; padding: 14px 16px; font-size: 18px; line-height: 1.5; margin-bottom: 14px; white-space: pre-line; }
+.ytbox { position: fixed; right: 12px; bottom: calc(12px + var(--safe-b)); z-index: 30; width: min(46vw, 220px); background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.ytbox .ytt { font-size: 11px; font-weight: 800; padding: 6px 8px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ytbox #yt-player, .ytbox iframe { display: block; width: 100%; aspect-ratio: 16/9; height: auto; border: 0; }
+body.has-yt .app { padding-bottom: calc(170px + var(--safe-b)); }
+body[data-sez="mentale"] .phasebox.i-facile, body[data-sez="mentale"] .phasebox.i-recupero { background: linear-gradient(160deg, #d9b8ff, #ff9be6); }
