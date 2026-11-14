@@ -176,8 +176,25 @@
     }
     return { nome: resto, q: q, u: u };
   }
+  var CIBI = ('riso pasta pane latte caffè caffe uova tonno miele zucchero sale pepe farina olio aceto burro yogurt banane banana mele mela ' +
+    'arance limoni pomodori pomodoro patate cipolle cipolla aglio carote finocchi carciofi fagiolini insalata spinaci pollo tacchino manzo ' +
+    'prosciutto bresaola salmone merluzzo nasello branzino noci mandorle cereali biscotti marmellata parmigiano grana formaggio ricotta ' +
+    'mozzarella acqua tè the avena gallette crackers cracker frutta verdura legumi ceci lenticchie fagioli piselli kiwi pere fragole uva').split(' ');
   function leggiArticoli(t) {
-    return t.split(/\s*,\s*|\s+e\s+(?!mezzo)|\s+ed\s+|\s+poi\s+|\s+più\s+/).map(leggiArticolo).filter(Boolean);
+    var UN = '(?:kg|g|gr|grammi|grammo|l|lt|litri|litro|ml|etti|etto|chili|chilo|kili|kilo|pz|pezzi|confezioni|confezione|scatolette|scatoletta|bottiglie|bottiglia|vasetti|vasetto|pacchi|pacco|barattoli|barattolo)';
+    var SEP = new RegExp('\\s*(?:,(?!\\d)|[;\\n])\\s*|\\.\\s+|\\s+(?=\\d+(?:[.,]\\d+)?\\s+(?!' + UN + '\\b)[a-zà-ù])|' +
+      '\\s+e\\s+(?!mezzo)|\\s+ed\\s+|\\s+poi\\s+|\\s+più\\s+|\\s+anche\\s+');
+    return t.split(SEP)
+      .map(function (x) { return x.replace(new RegExp('^(.+?)\\s+(\\d+(?:[.,]\\d+)?\\s*' + UN + ')$'), '$2 di $1'); }) // «riso 2 kg»
+      .map(function (x) { return x.replace(/^(?:e|ed|poi|anche|ho|abbiamo|c'è|ci sono|c'e|ce)\s+/, ''); })
+      .map(leggiArticolo).filter(Boolean)
+      .reduce(function (out, art) { // il dettato spesso non mette virgole: «riso pasta caffè»
+        var parole = art.nome.split(' ');
+        if (art.q == null && parole.length > 1 && parole.every(function (w) { return CIBI.indexOf(w) >= 0; })) {
+          parole.forEach(function (w) { out.push({ nome: w, q: null, u: null }); });
+        } else out.push(art);
+        return out;
+      }, []);
   }
 
   var RE_PASTI = [
@@ -227,7 +244,12 @@
       return { tipo: 'togli', dove: m[2] === 'dispensa' ? 'dispensa' : (m[2] ? 'spesa' : (contesto && contesto.vista === 'dispensa' ? 'dispensa' : 'spesa')), articoli: leggiArticoli(m[1]) };
     }
     // dispensa
-    if ((m = t.match(/^(?:in dispensa (?:ho|c'è|ci sono)|ho in (?:casa|dispensa)|in casa (?:ho|c'è|ci sono)|ho ancora)\s+(.+)$/)) ||
+    if (/^(svuota|azzera|cancella|resetta)( tutta)? (la )?dispensa$/.test(t)) return { tipo: 'svuota-dispensa' };
+    if ((m = t.match(/^(?:in|nella) dispensa (?:ho|abbiamo|c'è|ci sono|c'e|ce) solo\s+(.+)$|^(?:la )?dispensa (?:è|e'|contiene)?\s*:?\s*(?:solo\s+)?(.+)$/))) {
+      return { tipo: 'dispensa', sostituisci: true, articoli: leggiArticoli(m[1] || m[2]) };
+    }
+    if ((m = t.match(/^(?:in|nella) dispensa (?:ho|abbiamo|c'è|ci sono|c'e|ce|ho ancora)?\s*:?\s*(.+)$/)) ||
+        (m = t.match(/^(?:ho in (?:casa|dispensa)|in casa (?:ho|c'è|ci sono)|ho ancora|mi sono rimast[ie]|è rimast[oa]|sono rimast[ie]|c'è ancora|ci sono ancora)\s+(.+)$/)) ||
         (m = t.match(/^(?:aggiungi|metti|segna)\s+(.+?)\s+(?:in|alla|nella)\s+dispensa$/)) ||
         (m = t.match(/^(?:aggiungi|metti|segna)\s+(?:in|alla|nella)\s+dispensa\s+(.+)$/))) {
       return { tipo: 'dispensa', articoli: leggiArticoli(m[1]) };
@@ -241,7 +263,7 @@
     if (sembraPasto(t)) return leggiPasto(t, contesto);
     var v = contesto && contesto.vista;
     if (v === 'spesa') return { tipo: 'spesa', articoli: leggiArticoli(t) };
-    if (v === 'dispensa') return { tipo: 'dispensa', articoli: leggiArticoli(t) };
+    if (v === 'dispensa') return { tipo: 'dispensa', articoli: leggiArticoli(t.replace(/^(?:ho|abbiamo|c'è|ci sono|c'e|ce)\s+/, '')) };
     return leggiPasto(t, contesto);
   }
 
@@ -358,9 +380,16 @@
         scrivi(K.dispensa, d4); scrivi(K.spesa, s4); msg = 'Finito, messo in lista: ' + nomi(ris.articoli); break;
       }
       case 'dispensa': {
-        var d5 = leggi(K.dispensa, []);
-        ris.articoli.forEach(function (a) { aggiungiA(d5, a); });
-        scrivi(K.dispensa, d5); msg = 'In dispensa: ' + nomi(ris.articoli); break;
+        // «in dispensa ho 2 kg di riso» descrive cosa c'è: la quantità si imposta, non si somma
+        var d5 = ris.sostituisci ? [] : leggi(K.dispensa, []);
+        ris.articoli.forEach(function (a) {
+          var es = d5.filter(function (x) { return stessa(x.nome, a.nome); })[0];
+          if (es) { if (a.q != null) { es.q = a.q; es.u = a.u; } } else d5.push({ nome: a.nome, q: a.q, u: a.u });
+        });
+        scrivi(K.dispensa, d5); msg = (ris.sostituisci ? 'Dispensa rifatta: ' : 'In dispensa: ') + nomi(ris.articoli); break;
+      }
+      case 'svuota-dispensa': {
+        scrivi(K.dispensa, []); msg = 'Dispensa svuotata'; break;
       }
       case 'togli': {
         var key = ris.dove === 'dispensa' ? K.dispensa : K.spesa, l = leggi(key, []);
@@ -522,10 +551,10 @@
       oggi: ['«A pranzo come da piano»', '«A cena ho mangiato pizza margherita e una birra»', '«Ho saltato lo spuntino»'],
       pasto: ['«Come da piano»', '«Ho mangiato riso con pollo invece del pesce»'],
       spesa: ['«Aggiungi latte, 2 kg di riso e caffè»', '«Ho comprato il riso e le banane»', '«Genera la spesa della settimana»'],
-      dispensa: ['«Ho finito il miele»', '«In dispensa ho 3 scatolette di tonno»', '«Togli le noci»'],
+      dispensa: ['«Riso, pasta, 6 uova e 2 scatolette di tonno»', '«Ho finito il miele»', '«In dispensa c\'è solo …» per rifarla da capo'],
       diario: ['«A colazione come da piano»', '«Merenda: un gelato»']
     }[ctx.vista === 'pasto' ? 'pasto' : ctx.vista] || [];
-    var titolo = preset ? 'Cosa hai mangiato a ' + (trovaPasto(stato.data, preset) || { nome: 'questo pasto' }).nome.toLowerCase() + '?' : 'Dimmi';
+    var titolo = !preset && ctx.vista === 'dispensa' ? 'Cosa c\'è in dispensa?' : preset ? 'Cosa hai mangiato a ' + (trovaPasto(stato.data, preset) || { nome: 'questo pasto' }).nome.toLowerCase() + '?' : 'Dimmi';
     var foglio = document.createElement('div');
     foglio.className = 'ali-foglio';
     foglio.innerHTML =
@@ -550,7 +579,8 @@
     form.addEventListener('submit', function (ev) { ev.preventDefault(); concludi(ta.value); });
     ta.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); concludi(ta.value); } });
 
-    var C = SR();
+    var iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var C = iOS ? null : SR(); // su iPhone il riconoscimento del browser è inaffidabile: tastiera col 🎤, aperta subito
     var mostraDettato = function () {
       foglio.querySelector('#ali-onda').hidden = true;
       form.hidden = false;
@@ -701,11 +731,12 @@
   function vistaDispensa() {
     var d = leggi(K.dispensa, []);
     var h = '<div class="ali-sez-t"><h2>Dispensa</h2></div>';
-    if (!d.length) h += '<p class="ali-vuoto">Vuota. Quando torni dalla spesa di\' «ho comprato tutto», oppure «in dispensa ho riso, pasta e 6 uova».</p>';
+    h += '<button class="ali-btn ali-btn-pri ali-parla" data-act="voce">🎙 Dimmi cosa c\'è in dispensa</button>';
+    if (!d.length) h += '<p class="ali-vuoto">Vuota. Tocca il pulsante e di\' tutto di fila, per esempio «riso, pasta, 6 uova, 2 scatolette di tonno e un litro di latte». Oppure, al ritorno dalla spesa, «ho comprato tutto».</p>';
     else h += '<ul class="ali-lista ali-disp">' + d.map(function (x) {
       return '<li><span class="ali-l-n">' + esc(x.nome) + '</span><span class="ali-l-q">' + esc(fmtQ(x.q, x.u, x.nome)) + '</span></li>';
     }).join('') + '</ul>';
-    h += '<p class="ali-pic">Quando segni un pasto «come da piano», le quantità usate vengono scalate da sole.</p>';
+    h += '<p class="ali-pic">Puoi dire anche «ho finito il miele», «togli le noci», «in dispensa c\'è solo …» per rifarla da capo. Quando segni un pasto «come da piano», le quantità usate vengono scalate da sole.</p>';
     return h;
   }
 
