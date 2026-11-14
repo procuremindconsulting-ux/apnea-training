@@ -1001,6 +1001,16 @@ function vCollega() {
 
 /* ---------- avvio ---------- */
 // Service worker, manifest e icone sono gestiti da pwa/pwa.js (installazione a schermo intero).
+// Quando arriva una nuova versione dell'app (nuovo service worker), ricarica la pagina una volta,
+// ma non mentre un timer sta correndo: in quel caso la nuova versione arriva alla prossima apertura.
+if ('serviceWorker' in navigator) {
+  const cerano = !!navigator.serviceWorker.controller;
+  let ricaricato = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!cerano || ricaricato || T.tipo) return;
+    ricaricato = true; location.reload();
+  });
+}
 // Apertura da link con scheda allegata: …/#carica=<base64url del JSON>
 (function () {
   const m = location.hash.match(/^#carica=(.+)$/);

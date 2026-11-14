@@ -3,12 +3,13 @@
  * Strategia:
  *  - pagine (navigazioni): prima la rete, se manca si usa la copia in cache
  *    → aggiornamenti subito visibili quando c'è connessione, app funzionante in palestra senza campo.
- *  - file statici dello stesso sito (js, css, immagini, font): dalla cache e aggiornati in background.
+ *  - codice dell'app (html, js, css, manifest, json): prima la rete, poi la cache (aggiornamenti immediati).
+ *  - immagini, icone, video, font: dalla cache e aggiornati in background.
  *  - richieste verso altri domini (api.github.com), la cartella dati/ e le richieste non GET: mai in cache.
  *
  * Per forzare l'aggiornamento di tutti i telefoni basta cambiare VERSION.
  */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = `mr9-${VERSION}`;
 
 const PRECACHE = [
@@ -60,7 +61,9 @@ self.addEventListener('fetch', (event) => {
   // I video vengono chiesti a pezzi (Range): lasciali al browser.
   if (req.headers.has('range')) return;
 
-  if (req.mode === 'navigate') {
+  // Pagine e codice dell'app (html, js, css, manifest): prima la rete, così ogni rilascio arriva subito;
+  // senza rete si usa la copia in cache. Immagini, icone e video: dalla cache.
+  if (req.mode === 'navigate' || /\.(?:html|js|mjs|css|webmanifest|json)$/.test(url.pathname)) {
     event.respondWith(networkFirst(req));
     return;
   }
