@@ -68,6 +68,7 @@
 .ali-due .ali-btn { font-size: 14.5px; padding: 13px 8px; }
 .ali-det-reg { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--a-line); }
 .ali-det-reg .ali-reg { margin: 0 0 4px; }
+.ali-nc { color: var(--a-muted); font-style: italic; }
 
 .ali-sez-t { margin-bottom: 12px; }
 .ali-vuoto { color: var(--a-muted); background: var(--a-card); border: 1px dashed var(--a-line); border-radius: var(--a-r); padding: 18px; line-height: 1.45; }

@@ -351,6 +351,15 @@
     if (voce.comeDaPiano && p) scalaDispensa(p.ingredienti);
     return voce;
   }
+  // Regola di Gabriele (15/11/2026): un pasto del piano non confermato non scala la dispensa e conta come saltato.
+  // Diventa "saltato" 2 ore dopo l'orario del piano (o il giorno dopo); si può sempre confermare più tardi.
+  var MARGINE_PASTO_MIN = 120;
+  function pastoScaduto(k, p) {
+    var o = oggiKey();
+    if (k !== o) return k < o;
+    var hm = (p.ora || '23:59').split(':'), ora = new Date();
+    return ora.getHours() * 60 + ora.getMinutes() >= +hm[0] * 60 + +hm[1] + MARGINE_PASTO_MIN;
+  }
   function nomeExtra(id) { return { merenda: 'Merenda', spuntino: 'Spuntino', colazione: 'Colazione', pranzo: 'Pranzo', cena: 'Cena', dopocena: 'Dopo cena' }[id] || 'Fuori pasto'; }
 
   function generaSpesa(giorni) {
@@ -694,13 +703,14 @@
     if (pi.stato !== 'approvato' && pi.avviso) h += '<div class="ali-bozza">' + esc(pi.avviso) + '</div>';
     h += '<div class="ali-pasti">';
     g.tipo.pasti.forEach(function (p) {
-      var r = reg[p.id], princ = PRINCIPALI[p.id];
-      h += '<a class="ali-pasto' + (princ ? ' ali-princ' : '') + (r ? ' ali-fatto' : '') + '" href="' + BASE + '/pasto/' + p.id + '">' +
+      var r = reg[p.id], princ = PRINCIPALI[p.id], nc = !r && pastoScaduto(k, p);
+      h += '<a class="ali-pasto' + (princ ? ' ali-princ' : '') + (r || nc ? ' ali-fatto' : '') + '" href="' + BASE + '/pasto/' + p.id + '">' +
         '<div class="ali-pasto-t"><span class="ali-ora">' + esc(p.ora) + '</span><span class="ali-nome">' + esc(p.nome) + '</span>' +
-        (r ? '<span class="ali-stato">' + (r.comeDaPiano ? '✓' : r.saltato ? '–' : '✎') + '</span>' : '<span class="ali-va">›</span>') + '</div>' +
+        (r ? '<span class="ali-stato">' + (r.comeDaPiano ? '✓' : r.saltato ? '–' : '✎') + '</span>' : nc ? '<span class="ali-stato">–</span>' : '<span class="ali-va">›</span>') + '</div>' +
         (piattoDi(k, p.id) ? '<div class="ali-piatto">' + esc(piattoDi(k, p.id)) + '</div>' : '') +
         '<div class="ali-ingr-breve">' + esc(p.ingredienti.map(function (i) { return i[0]; }).join(' · ')) + '</div>' +
         (r && !r.comeDaPiano ? '<div class="ali-reg">' + esc(r.saltato ? 'Saltato' : r.testo) + '</div>' : '') +
+        (nc ? '<div class="ali-reg ali-nc">Non confermato: conta come saltato</div>' : '') +
         '</a>';
     });
     h += '</div>';
@@ -736,7 +746,8 @@
     if (ricettaDi(k, id)) h += '<div class="ali-ricetta"><div class="ali-chef-t">👨‍🍳 Ricetta dello chef</div><p>' + esc(ricettaDi(k, id)).replace(/\n/g, '<br>') + '</p></div>';
     h += '<button class="ali-btn ali-btn-chef" data-act="chef" data-id="' + esc(id) + '">👨‍🍳 ' + (ricettaDi(k, id) ? 'Chiedi altro allo chef' : 'Ricetta') + '</button>' +
       '<button class="ali-link" data-act="chef-copia" data-id="' + esc(id) + '">Copia la richiesta per Claude</button>';
-    h += '<div class="ali-det-reg">' + (r ? '<div class="ali-reg">' + esc(r.comeDaPiano ? '✓ Mangiato come da piano alle ' + r.ora : r.saltato ? 'Saltato' : '✎ ' + r.testo) + '</div>' : '') +
+    h += '<div class="ali-det-reg">' + (r ? '<div class="ali-reg">' + esc(r.comeDaPiano ? '✓ Mangiato come da piano alle ' + r.ora : r.saltato ? 'Saltato' : '✎ ' + r.testo) + '</div>' :
+      pastoScaduto(k, p) ? '<div class="ali-reg ali-nc">Non confermato: conta come saltato e non è stato scalato dalla dispensa. Se l\'hai mangiato, confermalo qui sotto.</div>' : '') +
       '<div class="ali-due"><button class="ali-btn ali-btn-ok" data-act="come-piano" data-id="' + esc(id) + '">✓ Come da piano</button>' +
       '<button class="ali-btn ali-btn-sec" data-act="voce" data-id="' + esc(id) + '">🎙 Ho mangiato altro</button></div></div>';
     return h;
@@ -860,7 +871,7 @@
         if (el.length) h += '<h3 style="margin:14px 0 6px;font-size:14px;opacity:.8">' + g[1] + '</h3><ul class="ali-lista ali-disp">' + el.map(riga).join('') + '</ul>';
       });
     }
-    h += '<p class="ali-pic">Quando segni un pasto «come da piano», le quantità usate vengono scalate da sole.</p>';
+    h += '<p class="ali-pic">Quando segni un pasto «come da piano», le quantità usate vengono scalate da sole. I pasti non confermati contano come saltati e non scalano niente.</p>';
     return h;
   }
 
@@ -871,7 +882,7 @@
       h += '<div class="ali-dia-g"><div class="ali-dia-t"><b>' + esc(etichettaData(k)) + '</b><span style="color:' + gi.tipo.colore + '">' + esc(gi.tipo.breve) + '</span></div><ul>';
       gi.tipo.pasti.forEach(function (p) {
         var r = reg.filter(function (e) { return e.pasto === p.id; })[0];
-        h += '<li class="' + (r ? '' : 'ali-manca') + '"><span>' + esc(p.nome) + '</span><span>' + esc(r ? (r.comeDaPiano ? '✓ come da piano' : r.saltato ? 'saltato' : r.testo) : '—') + '</span></li>';
+        h += '<li class="' + (r ? '' : 'ali-manca') + '"><span>' + esc(p.nome) + '</span><span>' + esc(r ? (r.comeDaPiano ? '✓ come da piano' : r.saltato ? 'saltato' : r.testo) : pastoScaduto(k, p) ? 'saltato (non confermato)' : '—') + '</span></li>';
       });
       reg.filter(function (e) { return !trovaPasto(k, e.pasto); }).forEach(function (e) {
         h += '<li><span>' + esc(e.nome) + ' ' + esc(e.ora) + '</span><span>' + esc(e.testo) + '</span></li>';
@@ -889,7 +900,7 @@
       out.push('', etichettaData(k).replace(/^(Oggi|Ieri|Domani) · /, '') + ' (' + gi.tipo.nome + ')');
       gi.tipo.pasti.forEach(function (p) {
         var r = reg.filter(function (e) { return e.pasto === p.id; })[0];
-        out.push('- ' + p.nome + ': ' + (r ? (r.comeDaPiano ? 'come da piano (' + r.ora + ')' : r.saltato ? 'saltato' : r.testo + ' (' + r.ora + ')') : 'non registrato'));
+        out.push('- ' + p.nome + ': ' + (r ? (r.comeDaPiano ? 'come da piano (' + r.ora + ')' : r.saltato ? 'saltato' : r.testo + ' (' + r.ora + ')') : pastoScaduto(k, p) ? 'saltato (non confermato)' : 'da fare'));
       });
       reg.filter(function (e) { return !trovaPasto(k, e.pasto); }).forEach(function (e) { out.push('- ' + e.nome + ' ' + e.ora + ': ' + e.testo); });
     }
