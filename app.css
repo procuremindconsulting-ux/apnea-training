@@ -266,3 +266,14 @@ body[data-sez="mentale"] .btn.primary { color: #16061f; box-shadow: 0 8px 24px -
 .ytbox #yt-player, .ytbox iframe { display: block; width: 100%; aspect-ratio: 16/9; height: auto; border: 0; }
 body.has-yt .app { padding-bottom: calc(170px + var(--safe-b)); }
 body[data-sez="mentale"] .phasebox.i-facile, body[data-sez="mentale"] .phasebox.i-recupero { background: linear-gradient(160deg, #d9b8ff, #ff9be6); }
+
+/* Prossime sedute, nota del coach, uscita dalla seduta */
+.coachnote { border-left: 4px solid var(--fisico2); }
+body[data-sez="apnea"] .coachnote { border-left-color: var(--apnea); }
+.nextcard { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: inherit; text-decoration: none; }
+.nextcard b { display: block; font-size: 17px; margin: 8px 0 2px; }
+.nextcard .chev { color: var(--muted); font-size: 22px; }
+.exitbox { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+.exitbox p { grid-column: 1 / -1; }
+.exitbox .btn { font-size: 15px; padding: 12px 10px; }
+.btn.danger { color: var(--bad); border-color: rgba(255,90,90,.35); }

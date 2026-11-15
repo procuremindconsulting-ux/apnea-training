@@ -256,14 +256,43 @@ function logEs(id) {
   if (!c.esercizi[id].apnee) c.esercizi[id].apnee = [];
   return c.esercizi[id];
 }
-function iniziaSeduta(sez = 'fisico', sicurezza) {
-  const s = sedutaCorrente(sez); if (!s || S.corrente) return;
-  if (sez === 'apnea' && !sicurezza) { location.hash = '#/sicurezza'; return; } // prima la conferma di sicurezza
+function iniziaSeduta(sez = 'fisico', sicurezza, id) {
+  const s = (id && trovaSeduta(id)) || sedutaCorrente(sez); if (!s || S.corrente) return;
+  sez = sezDi(s);
+  if (sez === 'apnea' && !sicurezza) { location.hash = '#/sicurezza/' + encodeURIComponent(s.id); return; } // prima la conferma di sicurezza
   S.corrente = { sedutaId: s.id, inizio: new Date().toISOString(), esercizi: {}, risposte: {}, noteFinali: '' };
   if (sicurezza) S.corrente.sicurezza = sicurezza;
   salva(); audio(); schermoAcceso(true);
   if (sez === 'apnea') parla('Si parte. Mai da solo.');
   location.hash = '#/seduta';
+}
+// Annulla: la seduta avviata per sbaglio torna da fare, senza esito.
+function annullaSeduta() {
+  const s = sedutaAttiva(); if (!S.corrente) return;
+  const sez = s ? sezDi(s) : 'fisico';
+  S.corrente = null; fermaTimer(); sottofondoChiudi(); try { speechSynthesis.cancel(); } catch (e) {}
+  schermoAcceso(false); salva(); toast('Seduta annullata: è di nuovo da fare');
+  location.hash = '#/' + sez;
+}
+// Saltata: esce dalla coda e il coach riceve un esito "saltata" (anche se non era mai stata avviata).
+function saltaSeduta(id, motivo) {
+  const s = trovaSeduta(id); if (!s) return;
+  const c = S.corrente && S.corrente.sedutaId === id ? S.corrente : { sedutaId: id, inizio: new Date().toISOString(), esercizi: {}, risposte: {}, noteFinali: '' };
+  const esito = costruisciEsito(s, c, { saltata: true, motivo });
+  S.storico.push({ esito, inviato: false });
+  S.coda = S.coda.filter((x) => x.id !== id);
+  if (c === S.corrente) { S.corrente = null; fermaTimer(); sottofondoChiudi(); try { speechSynthesis.cancel(); } catch (e) {} schermoAcceso(false); }
+  salva(); toast('Seduta segnata come saltata');
+  location.hash = '#/esito/' + (S.storico.length - 1);
+  sincronizza(true);
+}
+// Pulsante a due tocchi: il primo chiede conferma, il secondo esegue.
+function dueTocchi(b, testoConferma, fn) {
+  if (!b.dataset.armato) {
+    const orig = b.textContent; b.dataset.armato = '1'; b.textContent = testoConferma;
+    setTimeout(() => { if (b.isConnected) { delete b.dataset.armato; b.textContent = orig; } }, 4000); return;
+  }
+  fn();
 }
 
 /* ---------- timer (uno solo attivo alla volta) ---------- */
@@ -446,7 +475,8 @@ function render() {
   switch (pag) {
     case '': html = vHome(); break;
     case 'fisico': html = vSezione('fisico'); break;
-    case 'sicurezza': html = vSicurezza(); focus = true; break;
+    case 'sicurezza': html = vSicurezza(parti[1] ? decodeURIComponent(parti[1]) : ''); focus = true; break;
+    case 'vedi': html = vAnteprima(decodeURIComponent(parti[1] || '')); break;
     case 'seduta': html = vSeduta(); focus = !!S.corrente; break;
     case 'es': html = vEsercizio(parseInt(parti[1], 10) || 0); focus = !!S.corrente; break;
     case 'fine': html = vFine(); focus = true; break;
@@ -482,6 +512,7 @@ function sezPagina(pag, parti) {
   if (SEZIONI[pag]) return pag;
   if (pag === 'sicurezza') return 'apnea';
   if (['seduta', 'es', 'fine'].includes(pag)) { const s = sedutaAttiva(); return s ? sezDi(s) : 'fisico'; }
+  if (pag === 'vedi') { const s = trovaSeduta(decodeURIComponent(parti[1] || '')); return s ? sezDi(s) : 'fisico'; }
   if (pag === 'esito') { const h = S.storico[parseInt(parti[1], 10)]; return h ? sezEsito(h.esito) : 'fisico'; }
   if (pag === 'storico') return SEZIONI[parti[1]] ? parti[1] : 'fisico';
   return null;
@@ -561,7 +592,8 @@ function vSezione(sez) {
       ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
       ${apnea ? '<div class="note safe">Mai da solo in acqua: prima di partire confermi che il compagno c’è.</div>' : ''}
       ${s.sottofondo && s.sottofondo.titolo ? `<div class="note">🎧 ${esc(s.sottofondo.titolo)}${s.sottofondo.durata_s ? ' · ' + fmtBreve(s.sottofondo.durata_s) : ''}</div>` : ''}
-      <button class="btn primary" id="b-inizia" data-sez="${sez}">Inizia la seduta</button>
+      <button class="btn primary" id="b-inizia" data-sez="${sez}" data-id="${esc(s.id)}">Inizia la seduta</button>
+      <a class="btn ghost" href="#/vedi/${encodeURIComponent(s.id)}" style="margin-top:10px">Vedi gli esercizi</a>
     </div>`;
   } else {
     hero = `
@@ -575,11 +607,22 @@ function vSezione(sez) {
   }
   const mie = S.storico.map((h, i) => [h, i]).filter(([h]) => sezEsito(h.esito) === sez);
   const ultimo = mie[mie.length - 1];
+  // Le prossime sedute della pagina (oltre a quella in primo piano): si possono aprire, iniziare o saltare.
+  const primo = S.corrente && att && sezDi(att) === sez ? att : s;
+  const poi = S.coda.filter((x) => sezDi(x) === sez && (!primo || x.id !== primo.id)).slice(0, 2);
+  const schede = poi.length ? `
+  <div class="eyebrow" style="margin:18px 0 8px">Poi</div>
+  ${poi.map((x) => `<a class="card nextcard" href="#/vedi/${encodeURIComponent(x.id)}">
+      <div><span class="pill">${esc(etichettaTipo(x.tipo, x))}${x.data ? ' · ' + esc(dataIt(x.data)) : ''}</span>
+      <b>${esc(x.titolo)}</b>
+      <div class="small muted">${x.esercizi.length} esercizi${x.durata_stimata_min ? ' · ' + esc(x.durata_stimata_min) + "'" : ''}</div></div>
+      <span class="chev">›</span></a>`).join('')}` : '';
   return `
   <div class="eyebrow">${{ apnea: 'Apnea · con Dave', mentale: 'Mentale · con Gus' }[sez] || 'Allenamento fisico'}</div>
   <h1>Oggi</h1>
+  ${nota ? `<div class="card coachnote"><div class="eyebrow" style="margin-bottom:6px">${apnea ? 'Da Dave' : 'Dal coach'}</div>${esc(nota)}</div>` : ''}
   ${hero}
-  ${nota && !S.corrente ? `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${apnea ? 'Da Dave' : 'Dal coach'}</div>${esc(nota)}</div>` : ''}
+  ${schede}
   <div class="row" style="margin-top:6px">
     ${collegato() ? '<button class="btn" id="b-sync2">Aggiorna</button>' : '<a class="btn" href="#/collega">Collega il coach</a>'}
     <a class="btn" href="#/storico/${sez}">Storico${mie.length ? ' (' + mie.length + ')' : ''}</a>
@@ -593,8 +636,8 @@ function ultimoMalessere() {
   const h = S.storico.slice().reverse().find((x) => sezEsito(x.esito) === 'apnea');
   return !!(h && (h.esito.risposte || []).some((r) => r.id === 'regolare' && r.valore === 'No'));
 }
-function vSicurezza() {
-  const s = sedutaCorrente('apnea');
+function vSicurezza(id) {
+  const s = (id && trovaSeduta(id)) || sedutaCorrente('apnea');
   if (!s || S.corrente) return vSezione('apnea');
   const voci = (Array.isArray(s.sicurezza) && s.sicurezza.length ? s.sicurezza : SICUREZZA_APNEA).slice();
   if (s.compagno) voci[0] = `Il compagno (${s.compagno}) è in acqua con te, pronto, e sa che seduta fai`;
@@ -605,7 +648,8 @@ function vSicurezza() {
   <h1>Sicurezza</h1>
   ${ultimoMalessere() ? '<div class="note" style="border-color:var(--bad)">Dopo un malessere in apnea niente apnee finché non hai sentito il medico.</div>' : ''}
   <div class="checks">${voci.map((v, k) => `<button type="button" class="check" data-k="${k}" aria-pressed="false"><span class="box"></span><span>${esc(v)}</span></button>`).join('')}</div>
-  <button class="btn primary" id="b-sicuro" disabled>Confermo: iniziamo</button>
+  <button class="btn primary" id="b-sicuro" data-id="${esc(s.id)}" disabled>Confermo: iniziamo</button>
+  <a class="btn ghost" href="#/apnea" style="margin-top:10px">Non ora, torna indietro</a>
   <p class="small muted" style="text-align:center;margin-top:10px">Tetto di sforzo in allenamento: 7. L’8 solo in gara.</p>`;
 }
 
@@ -626,6 +670,31 @@ function riassuntoEs(ex) {
   if (ex.rir != null) parti.push(`riserva ${esc(ex.rir)}`);
   if (ex.recupero_s) parti.push(`rec ${fmtBreve(ex.recupero_s)}`);
   return parti.join(' · ');
+}
+
+// Scheda di una seduta non ancora avviata: si guarda senza far partire niente.
+function vAnteprima(id) {
+  const s = trovaSeduta(id);
+  if (!s) return vSezione('fisico');
+  const sez = sezDi(s); const att = sedutaAttiva();
+  const questa = S.corrente && S.corrente.sedutaId === s.id;
+  const items = s.esercizi.map((ex, i) => `<li><div class="exitem"><span class="exnum">${i + 1}</span>
+      <span><h3>${esc(ex.nome)}</h3><span class="exmeta">${riassuntoEs(ex)}</span>${ex.note ? `<span class="exmeta" style="display:block">${esc(ex.note)}</span>` : ''}</span></div></li>`).join('');
+  let azioni;
+  if (questa) azioni = '<a class="btn primary" href="#/seduta">Riprendi la seduta</a>';
+  else if (S.corrente && att) azioni = `<div class="note">C’è già una seduta in corso (${esc(att.titolo)}): chiudila o annullala prima di iniziare questa.</div><a class="btn" href="#/seduta">Vai alla seduta in corso</a>`;
+  else azioni = `<button class="btn primary" id="b-inizia" data-sez="${sez}" data-id="${esc(s.id)}">Inizia questa seduta</button>`;
+  return `
+  <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro(sez)}</span></div>
+  <div class="eyebrow">${esc(etichettaTipo(s.tipo, s))}${s.data ? ' · ' + esc(dataIt(s.data)) : ''}</div>
+  <h1>${esc(s.titolo)}</h1>
+  ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
+  <ul class="exlist">${items}</ul>
+  <div class="stack" style="margin-top:16px">
+    ${azioni}
+    ${questa ? '' : `<button class="btn ghost" id="b-salta-seduta" data-id="${esc(s.id)}">Seduta saltata</button>`}
+  </div>
+  ${questa ? '' : '<p class="small muted" style="text-align:center;margin-top:8px">“Seduta saltata” la toglie dalla lista e lo dice al coach.</p>'}`;
 }
 
 function vSeduta() {
@@ -649,7 +718,17 @@ function vSeduta() {
   ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
   <ul class="exlist">${items}</ul>
   <div class="stack" style="margin-top:16px">
-    <a class="btn ${tutti ? 'ok' : ''}" href="#/fine">${tutti ? 'Chiudi la seduta' : 'Chiudi la seduta in anticipo'}</a>
+    <a class="btn ${tutti ? 'ok' : ''}" href="#/fine">${tutti ? 'Chiudi la seduta' : 'Chiudi adesso e salva quello che hai fatto'}</a>
+  </div>
+  ${azioniUscita(s)}`;
+}
+
+// In fondo a seduta e fine seduta: uscire senza inventare dati.
+function azioniUscita(s) {
+  return `<div class="exitbox">
+    <button class="btn ghost" id="b-salta-seduta" data-id="${esc(s.id)}">Seduta saltata</button>
+    <button class="btn ghost danger" id="b-annulla-seduta">Annulla la seduta</button>
+    <p class="small muted" style="margin:6px 2px 0"><b>Saltata</b>: non la fai, il coach lo sa e ripianifica. <b>Annulla</b>: avviata per sbaglio, torna da fare e non si salva niente.</p>
   </div>`;
 }
 
@@ -902,15 +981,15 @@ function vFine() {
   <div class="topbar"><span class="tb-left">${HOME_BTN}<a class="back" href="#/seduta">‹ Seduta</a></span><span class="pill" id="clock-seduta">0:00</span></div>
   <div class="eyebrow">Fine seduta</div>
   <h1>Com'è andata?</h1>
-  ${nonFatti ? `<div class="note">${nonFatti} esercizi${nonFatti === 1 ? 'o' : ''} non completat${nonFatti === 1 ? 'o' : 'i'}: verranno segnalati a ${chiAllena(sezDi(s))}.</div>` : ''}
+  ${nonFatti ? `<div class="note">${nonFatti} esercizi${nonFatti === 1 ? 'o' : ''} non completat${nonFatti === 1 ? 'o' : 'i'}: verranno segnalati ${sezDi(s) === 'fisico' ? 'al coach' : 'a ' + chiAllena(sezDi(s))}.</div>` : ''}
   <div class="card">${qs}
-    <div class="q" style="margin-bottom:0"><label class="ql" for="q-note">Altro da dire a ${chiAllena(sezDi(s))}?</label><textarea id="q-note" placeholder="Facoltativo">${esc(S.corrente.noteFinali)}</textarea></div>
+    <div class="q" style="margin-bottom:0"><label class="ql" for="q-note">Altro da dire ${sezDi(s) === 'fisico' ? 'al coach' : 'a ' + chiAllena(sezDi(s))}?</label><textarea id="q-note" placeholder="Facoltativo">${esc(S.corrente.noteFinali)}</textarea></div>
   </div>
-  <button class="btn ok" id="b-conferma">Conferma seduta eseguita</button>`;
+  <button class="btn ok" id="b-conferma">Conferma seduta eseguita</button>
+  ${azioniUscita(s)}`;
 }
 
-function costruisciEsito() {
-  const s = sedutaAttiva(); const c = S.corrente;
+function costruisciEsito(s = sedutaAttiva(), c = S.corrente, opz = {}) {
   const domande = domandeDi(s);
   const fine = new Date();
   const extra = sezDi(s) === 'apnea' ? { disciplina: s.disciplina || null, sicurezza: c.sicurezza || null } : {};
@@ -926,7 +1005,8 @@ function costruisciEsito() {
     data_prevista: s.data || null,
     inizio: c.inizio,
     fine: fine.toISOString(),
-    durata_min: Math.round((fine - new Date(c.inizio)) / 60000),
+    durata_min: opz.saltata ? 0 : Math.round((fine - new Date(c.inizio)) / 60000),
+    ...(opz.saltata ? { saltata: true } : {}),
     esercizi: s.esercizi.map((ex) => {
       const l = c.esercizi[ex.id] || { stato: 'da_fare', serie: [] };
       const o = { id: ex.id, nome: ex.nome, tipo: ex.tipo, stato: l.stato === 'in_corso' ? 'parziale' : l.stato === 'da_fare' ? 'non_fatto' : l.stato };
@@ -953,8 +1033,8 @@ function costruisciEsito() {
       if (l.note) o.note = l.note;
       return o;
     }),
-    risposte: domande.map((d) => ({ id: d.id, domanda: d.testo, valore: c.risposte[d.id] ?? null })),
-    note_finali: c.noteFinali || ''
+    risposte: opz.saltata ? [] : domande.map((d) => ({ id: d.id, domanda: d.testo, valore: c.risposte[d.id] ?? null })),
+    note_finali: opz.saltata ? (opz.motivo || 'Seduta saltata') : (c.noteFinali || '')
   };
 }
 
@@ -976,7 +1056,7 @@ function vEsito(i) {
   if (collegato()) {
     return `
   <div class="topbar"><span class="tb-left">${HOME_BTN}${indietro(sez)}</span></div>
-  <div class="eyebrow">Seduta confermata ✓</div>
+  <div class="eyebrow">${e.esito.saltata ? 'Seduta saltata' : 'Seduta confermata ✓'}</div>
   <h1>${e.inviato ? `Esito inviato a ${chi}` : `Invio a ${chi}…`}</h1>
   ${allarme}
   <div class="card">
@@ -1033,7 +1113,7 @@ function vStorico(sez = 'fisico') {
     if (sezEsito(e) !== sez) return '';
     const fatti = e.esercizi.filter((x) => x.stato === 'fatto').length;
     return `<a class="card hist" href="#/esito/${i}" style="display:flex">
-      <div><b>${esc(e.titolo)}</b><div class="small muted">${esc(dataIt(e.inizio))} · ${e.durata_min} min · ${fatti}/${e.esercizi.length} esercizi</div></div>
+      <div><b>${esc(e.titolo)}</b><div class="small muted">${esc(dataIt(e.inizio))} · ${e.saltata ? 'saltata' : `${e.durata_min} min · ${fatti}/${e.esercizi.length} esercizi`}</div></div>
       <span class="pill ${h.inviato ? 'ok' : 'warn'}">${h.inviato ? 'Inviato' : 'Da inviare'}</span></a>`;
   }).join('');
   return `
@@ -1052,7 +1132,9 @@ function vPresto(cls, titolo, testo) {
 /* ---------- collegamento eventi ---------- */
 function collega(pag, parti) {
   const on = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
-  on('b-inizia', (ev) => iniziaSeduta(ev.currentTarget.dataset.sez || 'fisico'));
+  on('b-inizia', (ev) => iniziaSeduta(ev.currentTarget.dataset.sez || 'fisico', null, ev.currentTarget.dataset.id));
+  on('b-salta-seduta', (ev) => { const b = ev.currentTarget; dueTocchi(b, 'Tocca di nuovo: seduta saltata', () => saltaSeduta(b.dataset.id)); });
+  on('b-annulla-seduta', (ev) => dueTocchi(ev.currentTarget, 'Tocca di nuovo: annulla senza salvare', annullaSeduta));
   if (pag === 'sicurezza') {
     const btn = $('#b-sicuro');
     document.querySelectorAll('.check').forEach((c) => c.addEventListener('click', () => {
@@ -1061,7 +1143,7 @@ function collega(pag, parti) {
     }));
     on('b-sicuro', () => {
       const voci = Array.from(document.querySelectorAll('.check')).map((x) => x.textContent.trim());
-      iniziaSeduta('apnea', { confermata: true, ora: new Date().toISOString(), voci });
+      iniziaSeduta('apnea', { confermata: true, ora: new Date().toISOString(), voci }, $('#b-sicuro').dataset.id);
     });
   }
 

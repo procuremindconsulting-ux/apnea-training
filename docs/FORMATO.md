@@ -112,9 +112,13 @@ Le domande `scala`, `numero` e `scelta` sono obbligatorie, salvo `"facoltativa":
 
 `stato` di un esercizio: `fatto`, `parziale`, `saltato`, `non_fatto`.
 
+**Seduta saltata.** Se Gabriele tocca *Seduta saltata* (dalla scheda della seduta, dalla seduta avviata o dalla fine seduta) l'app scrive comunque un esito, con `"saltata": true`, `durata_min: 0`, `risposte: []`, tutti gli esercizi non fatti (o quelli fatti fino a quel momento) e `note_finali` = "Seduta saltata". La seduta esce dalla coda: il coach la ripianifica o la lascia perdere.
+
+**Seduta annullata.** *Annulla la seduta* serve per una seduta avviata per sbaglio: non scrive nessun esito e la seduta torna da fare.
+
 ## Una coda, tre pagine
 
-Tutte le sedute stanno in `fisico/coda.json` e tutti gli esiti in `fisico/esiti/`. L'app le divide per `tipo`: `apnea` nella pagina **Apnea** (le scrive Dave), `mentale` nella pagina **Mentale** (le scrive Gus), tutte le altre in **Fisico** (Papa Swolio e Kilian). Ogni pagina mostra solo la propria prossima seduta; una sola seduta per volta può essere in corso. Ogni agente cambia solo le sedute del proprio tipo. L'esito porta `"sezione"`: `fisico`, `apnea` o `mentale`.
+Tutte le sedute stanno in `fisico/coda.json` e tutti gli esiti in `fisico/esiti/`. L'app le divide per `tipo`: `apnea` nella pagina **Apnea** (le scrive Dave), `mentale` nella pagina **Mentale** (le scrive Gus), tutte le altre in **Fisico** (Papa Swolio e Kilian). Ogni pagina mostra in alto la nota del coach, poi la prossima seduta in grande e sotto le due successive: tutte si possono aprire per vedere gli esercizi, iniziare (anche fuori ordine) o segnare come saltate. Una sola seduta per volta può essere in corso. Ogni agente cambia solo le sedute del proprio tipo. L'esito porta `"sezione"`: `fisico`, `apnea` o `mentale`.
 
 ## Sedute di apnea (Dave)
 
