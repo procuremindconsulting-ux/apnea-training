@@ -147,3 +147,9 @@
 .ali-occ-r:first-of-type { border-top: 0; }
 .ali-occ-b { width: auto; flex: none; padding: 8px 14px; margin: 0; }
 .ali-occ-ok { flex: none; font-weight: 800; color: var(--a-c1); font-size: 13px; }
+/* quantità modificabile nella lista della spesa */
+.ali-qin { display: inline-flex; align-items: center; gap: 4px; }
+.ali-qin input { width: 68px; padding: 7px 8px; border-radius: 10px; border: 1px solid var(--a-line); background: var(--a-card2); color: var(--a-text); font: inherit; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.ali-qin input::-webkit-outer-spin-button, .ali-qin input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ali-qin input:focus { outline: 2px solid var(--a-c1); outline-offset: 1px; }
+.ali-qin span { min-width: 22px; font-size: 13px; }

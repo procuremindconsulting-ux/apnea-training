@@ -31,13 +31,14 @@
     if (k === K.diario) salvaDiarioRemoto();
   }
   /* ---------- repository dati (window.Mr9Dati, definito da app.js) ---------- */
-  var timerDisp = null;
+  var timerDisp = null, K_ULT_SPESA = 'mr9.ali.ultimaSpesa';
   function dati() { return window.Mr9Dati && window.Mr9Dati.scrivi ? window.Mr9Dati : null; }
   function salvaDispensaRemota() {
     if (!dati()) return;
     clearTimeout(timerDisp);
     timerDisp = setTimeout(function () {
       var corpo = { formato: 'mr9-dispensa-v1', aggiornato: new Date().toISOString(), prodotti: leggi(K.dispensa, []) };
+      var us = leggi(K_ULT_SPESA, null); if (us) corpo.ultima_spesa = us;
       Promise.resolve(dati().scrivi('alimentazione/dispensa.json', JSON.stringify(corpo, null, 1), 'Dispensa aggiornata dall\'app')).catch(function () {});
     }, 2500);
   }
@@ -87,11 +88,22 @@
       m.giorni.forEach(function (g) {
         if (!g.data || g.data < oggi) return;
         menu[g.data] = {};
-        (g.pasti || []).forEach(function (p) { if (p.id && p.piatto) menu[g.data][p.id] = { piatto: p.piatto, ricetta: p.ricetta || '' }; });
+        (g.pasti || []).forEach(function (p) {
+          if (!p.id || !p.piatto) return;
+          var ing = Array.isArray(p.ingredienti) ? p.ingredienti.filter(function (i) { return Array.isArray(i) && i[0] && !isNaN(+i[1]); }).map(function (i) { return [String(i[0]), +i[1]]; }) : null;
+          menu[g.data][p.id] = { piatto: p.piatto, ricetta: p.ricetta || '', ingredienti: ing && ing.length ? ing : null, fuori: !!p.fuori };
+        });
       });
       scrivi(K.menu, menu);
       var s = leggi(K.spesa, []);
-      (m.spesa || []).forEach(function (a) { if (a && a.nome) aggiungiA(s, { nome: chiave(a.nome), q: a.q == null ? null : +a.q, u: a.u || (a.q == null ? null : 'pz') }, { origine: 'chef', preso: false }); });
+      // ogni menu nuovo SOSTITUISCE la spesa dello chef non ancora spuntata (prima si sommava a ogni aggiornamento)
+      s = s.filter(function (x) { return x.origine !== 'chef' || x.preso || x.qMod; });
+      (m.spesa || []).forEach(function (a) {
+        if (!a || !a.nome) return;
+        var art = { nome: chiave(a.nome), q: a.q == null ? null : +a.q, u: a.u || (a.q == null ? null : 'pz') }, gia = voceLocale(s, art.nome);
+        if (gia && !gia.preso) { if (!gia.qMod) { gia.q = art.q; gia.u = art.u; } gia.origine = 'chef'; }
+        else if (!gia) s.push({ nome: art.nome, q: art.q, u: art.u, origine: 'chef', preso: false });
+      });
       scrivi(K.spesa, s);
       scrivi(K.menuVisto, m.aggiornato || '');
       ridisegna();
@@ -157,8 +169,16 @@
   function giornata(k) { var t = tipoDi(k); return { id: t, tipo: piano().tipi[t] }; }
   function trovaPasto(k, id) {
     var p = giornata(k).tipo.pasti;
-    for (var i = 0; i < p.length; i++) if (p[i].id === id) return p[i];
+    for (var i = 0; i < p.length; i++) if (p[i].id === id) return conMenu(k, p[i]);
     return null;
+  }
+  // Se lo chef ha scritto il piatto con i suoi ingredienti (es. sostituzioni con la dispensa), valgono quelli.
+  function conMenu(k, p) {
+    var v = voceMenu(k, p.id);
+    if (!v || typeof v === 'string' || !v.ingredienti || !v.ingredienti.length) return p;
+    var c = {}; for (var x in p) c[x] = p[x];
+    c.ingredienti = v.ingredienti; c.daMenu = true;
+    return c;
   }
 
   /* ---------- quantità e nomi ---------- */
@@ -366,7 +386,8 @@
     var tot = {}, ordine = [];
     for (var g = 0; g < giorni; g++) {
       var k = sposta(oggiKey(), g);
-      giornata(k).tipo.pasti.forEach(function (p) {
+      giornata(k).tipo.pasti.forEach(function (p0) {
+        var p = conMenu(k, p0);
         p.ingredienti.forEach(function (ing) {
           var c = chiave(ing[0]);
           if (!tot[c]) { tot[c] = { nome: ing[0], q: 0 }; ordine.push(c); }
@@ -702,7 +723,8 @@
       '<button class="ali-freccia" data-act="giorno" data-d="1" aria-label="Giorno dopo">›</button></div>';
     if (pi.stato !== 'approvato' && pi.avviso) h += '<div class="ali-bozza">' + esc(pi.avviso) + '</div>';
     h += '<div class="ali-pasti">';
-    g.tipo.pasti.forEach(function (p) {
+    g.tipo.pasti.forEach(function (p0) {
+      var p = conMenu(k, p0);
       var r = reg[p.id], princ = PRINCIPALI[p.id], nc = !r && pastoScaduto(k, p);
       h += '<a class="ali-pasto' + (princ ? ' ali-princ' : '') + (r || nc ? ' ali-fatto' : '') + '" href="' + BASE + '/pasto/' + p.id + '">' +
         '<div class="ali-pasto-t"><span class="ali-ora">' + esc(p.ora) + '</span><span class="ali-nome">' + esc(p.nome) + '</span>' +
@@ -781,11 +803,13 @@
           if (v.avanza && v.avanza.q) sotto.push('avanza ' + fmtQ(v.avanza.q, v.avanza.u, v.nome));
           if (v.alternativa && v.alternativa.negozio) sotto.push('se manca: ' + v.alternativa.negozio);
           if (v.verificato === false) sotto.push('prodotto da verificare');
+          var qv = qtaNegozio(loc, v);
+          if (v.confezioni) sotto.unshift(v.confezioni + (v.confezioni == 1 ? ' confezione' : ' confezioni'));
           return '<li class="' + (preso ? 'ali-preso' : '') + '"><button data-act="spunta-n" data-n="' + esc(v.nome) + '" aria-label="Preso">' + (preso ? '✓' : '') + '</button>' +
             '<span class="ali-l-n">' + esc(v.prodotto || v.nome) +
             (v.offerta ? ' <i class="ali-off">offerta' + (v.offerta.prezzo ? ' ' + esc(v.offerta.prezzo) : '') + '</i>' : '') +
             (sotto.length ? '<small class="ali-l-sub">' + esc(sotto.join(' · ')) + '</small>' : '') + '</span>' +
-            '<span class="ali-l-q">' + (v.confezioni ? '×' + esc(v.confezioni) : esc(v.serve ? fmtQ(v.serve.q, v.serve.u, v.nome) : '')) + '</span></li>';
+            campoQ('n', v.nome, qv.q, qv.u) + '</li>';
         }).join('') + '</ul>';
       });
     });
@@ -822,6 +846,22 @@
     });
     return out.join('\n');
   }
+  // Quantità che entra in dispensa per una voce di Lerch: quella scritta da Gabriele, altrimenti quanto serve + quanto avanza.
+  function qtaNegozio(loc, v) {
+    if (loc && loc.qMod) return { q: loc.q, u: loc.u };
+    var q = v.serve ? v.serve.q : null, u = v.serve ? v.serve.u : null;
+    if (q != null && v.avanza && v.avanza.q && v.avanza.u === u) q += v.avanza.q;
+    if (q == null && loc) return { q: loc.q, u: loc.u };
+    return { q: q, u: u };
+  }
+  function campoQ(tipo, rif, q, u) {
+    return '<label class="ali-l-q ali-qin"><input type="number" inputmode="decimal" min="0" step="any" data-q' + tipo + '="' + esc(rif) + '" value="' + (q == null ? '' : esc(Math.round(q * 10) / 10)) + '" placeholder="?" aria-label="Quantità">' +
+      '<span>' + esc(u || 'pz') + '</span></label>';
+  }
+  function bottoneConferma(s) {
+    var n = s.filter(function (x) { return x.preso; }).length;
+    return n ? '<button class="ali-btn ali-btn-ok" data-act="in-dispensa">Conferma acquisti: ' + n + ' in dispensa</button>' : '';
+  }
   function vistaSpesa() {
     var s = leggi(K.spesa, []), vn = vistaNegozi(s);
     if (vn) {
@@ -830,13 +870,13 @@
         h0 += '<h4 class="ali-rep-t">Altro</h4><ul class="ali-lista">' + vn.resto.map(function (i) {
           var x = s[i];
           return '<li class="' + (x.preso ? 'ali-preso' : '') + '"><button data-act="spunta" data-i="' + i + '" aria-label="Preso">' + (x.preso ? '✓' : '') + '</button>' +
-            '<span class="ali-l-n">' + esc(x.nome) + '</span><span class="ali-l-q">' + esc(fmtQ(x.q, x.u, x.nome)) + '</span>' +
+            '<span class="ali-l-n">' + esc(x.nome) + '</span>' + campoQ('i', i, x.q, x.u) +
             (x.origine && x.origine !== 'chef' ? '<i class="ali-orig">' + esc(x.origine) + '</i>' : '') + '</li>';
         }).join('') + '</ul>';
       }
-      h0 += '<div class="ali-due">' + (s.some(function (x) { return x.preso; }) ? '<button class="ali-btn ali-btn-ok" data-act="in-dispensa">Presi → dispensa</button>' : '') + '</div>' +
+      h0 += '<div class="ali-due">' + bottoneConferma(s) + '</div>' +
         '<button class="ali-link" data-act="condividi-spesa">Condividi la lista</button>' +
-        '<p class="ali-pic">Lista per negozio preparata dall\'agente spesa: Lidl prima, Eurospin per quello che manca.</p>';
+        '<p class="ali-pic">Spunta quello che compri e correggi le quantità: con «Conferma acquisti» entra in dispensa solo ciò che è spuntato, il resto rimane in lista. Lista per negozio preparata da Lerch: Lidl prima, Eurospin per quello che manca.</p>';
       return h0;
     }
     var h = '<div class="ali-sez-t"><h2>Lista della spesa</h2></div>';
@@ -845,14 +885,14 @@
     } else {
       h += '<ul class="ali-lista">' + s.map(function (x, i) {
         return '<li class="' + (x.preso ? 'ali-preso' : '') + '"><button data-act="spunta" data-i="' + i + '" aria-label="Preso">' + (x.preso ? '✓' : '') + '</button>' +
-          '<span class="ali-l-n">' + esc(x.nome) + '</span><span class="ali-l-q">' + esc(fmtQ(x.q, x.u, x.nome)) + '</span>' +
+          '<span class="ali-l-n">' + esc(x.nome) + '</span>' + campoQ('i', i, x.q, x.u) +
           (x.origine === 'piano' || x.origine === 'chef' ? '<i class="ali-orig">' + x.origine + '</i>' : '') + '</li>';
       }).join('') + '</ul>';
     }
     h += '<div class="ali-due"><button class="ali-btn ali-btn-sec" data-act="genera">Genera dai prossimi 7 giorni</button>' +
-      (s.some(function (x) { return x.preso; }) ? '<button class="ali-btn ali-btn-ok" data-act="in-dispensa">Presi → dispensa</button>' : '') + '</div>' +
+      bottoneConferma(s) + '</div>' +
       (s.length ? '<button class="ali-link" data-act="condividi-spesa">Condividi la lista</button>' : '') +
-      '<p class="ali-pic">Frutta e verdura sono a peso indicativo; i prodotti già in dispensa vengono scalati.</p>';
+      '<p class="ali-pic">Spunta quello che compri e correggi le quantità: con «Conferma acquisti» entra in dispensa solo ciò che è spuntato, il resto rimane in lista.</p>';
     return h;
   }
 
@@ -949,9 +989,8 @@
         var sn = leggi(K.spesa, []), nm = b.getAttribute('data-n'), ln = voceLocale(sn, nm);
         var vv = null; (leggi(K.negozi, { negozi: [] }).negozi || []).forEach(function (n) { (n.reparti || []).forEach(function (r) { (r.voci || []).forEach(function (v) { if (v.nome === nm) vv = v; }); }); });
         // in dispensa va quello che si compra davvero: quanto serve + quanto avanza dalla confezione
-        var qq = vv && vv.serve ? vv.serve.q : null, uu = vv && vv.serve ? vv.serve.u : null;
-        if (qq != null && vv.avanza && vv.avanza.q && vv.avanza.u === uu) qq += vv.avanza.q;
-        if (ln) { ln.preso = !ln.preso; if (ln.preso && qq != null) { ln.q = qq; ln.u = uu; } }
+        var qn = vv ? qtaNegozio(ln, vv) : { q: null, u: null }, qq = qn.q, uu = qn.u;
+        if (ln) { ln.preso = !ln.preso; if (ln.preso && qq != null && !ln.qMod) { ln.q = qq; ln.u = uu; } }
         else sn.push({ nome: chiave(nm), q: qq, u: uu, origine: 'chef', preso: true });
         scrivi(K.spesa, sn); ridisegna(); break;
       }
@@ -963,15 +1002,38 @@
       }
       case 'in-dispensa': {
         var snap = istantanea(), s2 = leggi(K.spesa, []), d = leggi(K.dispensa, []);
-        s2.filter(function (x) { return x.preso; }).forEach(function (x) { aggiungiA(d, x); });
+        var presi = s2.filter(function (x) { return x.preso; });
+        presi.forEach(function (x) { aggiungiA(d, { nome: x.nome, q: x.q, u: x.u }); });
+        try { localStorage.setItem(K_ULT_SPESA, JSON.stringify({ quando: new Date().toISOString(), prodotti: presi.map(function (x) { return { nome: x.nome, q: x.q, u: x.u }; }) })); } catch (e) {}
         scrivi(K.dispensa, d); scrivi(K.spesa, s2.filter(function (x) { return !x.preso; }));
-        stato.annulla = snap; ridisegna(); toast('Presi spostati in dispensa', true); break;
+        stato.annulla = snap; ridisegna(); toast(presi.length + (presi.length === 1 ? ' prodotto' : ' prodotti') + ' in dispensa, il resto resta in lista', true); break;
       }
       case 'genera': esegui({ tipo: 'genera-spesa' }); break;
       case 'condividi-spesa': if (vistaNegozi(leggi(K.spesa, []))) { condividi(testoNegozi(), 'Lista della spesa'); break; } condividi(leggi(K.spesa, []).filter(function (x) { return !x.preso; }).map(function (x) { return '• ' + x.nome + (x.q != null ? ' ' + fmtQ(x.q, x.u, x.nome) : ''); }).join('\n'), 'Lista della spesa'); break;
       case 'condividi-diario': condividi(testoDiario(), 'Diario pasti'); break;
       case 'annulla': if (stato.annulla) { ripristina(stato.annulla); stato.annulla = null; ridisegna(); toast('Annullato', false); } break;
     }
+  }
+
+  // Quantità modificata a mano nella lista della spesa: vale quella al momento della conferma.
+  function cambiaQ(ev) {
+    var t = ev.target; if (!t || t.tagName !== 'INPUT') return;
+    var qi = t.getAttribute('data-qi'), qn = t.getAttribute('data-qn');
+    if (qi == null && qn == null) return;
+    var val = String(t.value).replace(',', '.').trim(), q = val === '' ? null : +val;
+    if (q != null && (isNaN(q) || q < 0)) return;
+    var s = leggi(K.spesa, []), x;
+    if (qi != null) x = s[+qi];
+    else {
+      x = voceLocale(s, qn);
+      if (!x) {
+        var vv = null; (leggi(K.negozi, { negozi: [] }).negozi || []).forEach(function (n) { (n.reparti || []).forEach(function (r) { (r.voci || []).forEach(function (v) { if (v.nome === qn) vv = v; }); }); });
+        x = { nome: chiave(qn), q: null, u: vv ? qtaNegozio(null, vv).u : null, origine: 'chef', preso: false }; s.push(x);
+      }
+    }
+    if (!x) return;
+    x.q = q; x.qMod = true; if (!x.u) x.u = t.parentNode && t.parentNode.querySelector('span') ? t.parentNode.querySelector('span').textContent : 'g';
+    scrivi(K.spesa, s);
   }
 
   window.Mr9Alimentazione = {
@@ -981,6 +1043,7 @@
       stato.root = el;
       stato.percorso = (opz && opz.percorso) || [];
       el.addEventListener('click', clic);
+      if (!el._aliQ) { el._aliQ = true; el.addEventListener('change', cambiaQ); }
       ridisegna();
       caricaPiano();
       caricaMenuChef();
